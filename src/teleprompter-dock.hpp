@@ -77,6 +77,9 @@ private:
 	// Recompute the effective scroll speed from the font-derived baseline and
 	// the manual multiplier; updates m_speed + the speed readout label.
 	void applyScrollSpeed();
+	// Apply the dock-background opacity: window()->setWindowOpacity() (true
+	// transparency when floated; no-op when docked) + an rgba() chrome fill.
+	void applyOpacity();
 
 	// scroll engine
 	void tick();              // ~60 Hz timer callback
@@ -115,6 +118,11 @@ private:
 	double m_speedMult = 1.0; // manual override on the font-derived baseline
 	double m_lineHeight = 1.5;
 	int m_countdownLen = 3;   // seconds (0 = none)
+	// Dock-background opacity (0.30–1.00). Drives window()->setWindowOpacity
+	// (real see-through when the dock is floated; a no-op while docked) plus a
+	// translucent rgba() chrome fill. The prompter stage stays opaque so the
+	// reading text is always legible. See applyOpacity() / TODO 00006.b.
+	double m_opacity = 1.0;
 	bool m_guide = false;
 	bool m_editorOpen = false;
 	bool m_settingsOpen = false;
@@ -153,6 +161,8 @@ private:
 	QLabel *m_speedVal = nullptr;
 	QSlider *m_lineSlider = nullptr;
 	QLabel *m_lineVal = nullptr;
+	QSlider *m_opacitySlider = nullptr;
+	QLabel *m_opacityVal = nullptr;
 	QComboBox *m_countdownCombo = nullptr;
 	QCheckBox *m_guideCheck = nullptr;
 	QLabel *m_readTime = nullptr;

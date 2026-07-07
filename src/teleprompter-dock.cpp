@@ -12,8 +12,10 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QDir>
+#include <QDockWidget>
 #include <QElapsedTimer>
 #include <QEvent>
 #include <QFile>
@@ -61,6 +63,19 @@ constexpr double kLinesPerSec = 0.83333;
 double fontBaseSpeed(int fontPx, double lineHeight)
 {
 	return double(fontPx) * lineHeight * kLinesPerSec;
+}
+
+// Convert a "#rrggbb" palette colour + an alpha (0..1) into a Qt-stylesheet
+// "rgba(r,g,b,a)" string, so the dock chrome can be painted translucent for the
+// docked-state opacity (TODO 00006.b). Alpha is the 0..255 form Qt expects.
+QString rgbaFill(const char *hex, double alpha)
+{
+	const QColor c(hex);
+	return QStringLiteral("rgba(%1,%2,%3,%4)")
+		.arg(c.red())
+		.arg(c.green())
+		.arg(c.blue())
+		.arg(int(qRound(qBound(0.0, alpha, 1.0) * 255)));
 }
 } // namespace
 
@@ -258,6 +273,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_fontSlider->setValue(m_fontSize);
 	m_speedSlider->setValue(int(m_speedMult * 100));
 	m_lineSlider->setValue(int(m_lineHeight * 100));
+	m_opacitySlider->setValue(int(qRound(m_opacity * 100)));
 	m_countdownCombo->setCurrentIndex(
 		m_countdownCombo->findData(m_countdownLen));
 	m_guideCheck->setChecked(m_guide);
@@ -269,6 +285,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_fontVal->setText(QString::number(m_fontSize) + "px");
 	m_lineVal->setText(QString::number(m_lineHeight, 'f', 2));
 	applyScrollSpeed(); // derives m_speed + sets m_speedVal from font/mult
+	applyOpacity();     // reflects loaded opacity into chrome + readout
 
 	applyPrompterFont();
 	m_stage->setGuide(m_guide);
@@ -338,14 +355,15 @@ void TeleprompterDock::buildUi()
 	barLay->setContentsMargins(8, 8, 8, 8);
 	barLay->setSpacing(6);
 
+	// Transport controls are uniform WHITE-icon buttons (TODO 00006.a): no
+	// colored play/pause/stop fills — a clean, minimal look. Toggle/active
+	// state is shown with a subtle neutral fill (see applyStyle), not colour.
 	m_startBtn = mkButton(QStringLiteral("▶ Start"),
 			      QStringLiteral("Start (Ctrl+Enter)"));
-	m_startBtn->setProperty("kind", "primary");
 	m_pauseBtn = mkButton(QStringLiteral("⏸ Pause"),
 			      QStringLiteral("Pause / Resume (Space)"));
 	m_stopBtn = mkButton(QStringLiteral("⏹ Stop"),
 			     QStringLiteral("Stop (Esc)"));
-	m_stopBtn->setProperty("kind", "danger");
 	m_resetBtn = mkButton(QStringLiteral("⟲ Reset"),
 			      QStringLiteral("Reset to top"));
 	m_scriptToggle = mkButton(QStringLiteral("✎ Script"),
@@ -422,6 +440,27 @@ void TeleprompterDock::buildUi()
 		m_lineSlider->setSingleStep(5);
 		setLay->addWidget(m_lineSlider);
 	}
+	// dock opacity (TODO 00006.b): translucent dock background. Real
+	// see-through when the dock is FLOATED (setWindowOpacity); while docked
+	// inside OBS it degrades to a translucent chrome fill (see applyOpacity).
+	{
+		auto *row = new QHBoxLayout();
+		auto *lab = mkFieldLabel(QStringLiteral("Dock opacity"));
+		m_opacityVal = new QLabel(QStringLiteral("100%"));
+		m_opacityVal->setObjectName("val");
+		row->addWidget(lab);
+		row->addStretch(1);
+		row->addWidget(m_opacityVal);
+		setLay->addLayout(row);
+		m_opacitySlider = new QSlider(Qt::Horizontal);
+		m_opacitySlider->setRange(30, 100); // /100 → 0.30–1.00
+		m_opacitySlider->setSingleStep(5);
+		setLay->addWidget(m_opacitySlider);
+		auto *hint = new QLabel(QStringLiteral(
+			"Full see-through requires floating the dock"));
+		hint->setObjectName("sub");
+		setLay->addWidget(hint);
+	}
 	// countdown
 	{
 		auto *row = new QHBoxLayout();
@@ -486,6 +525,13 @@ void TeleprompterDock::buildUi()
 
 void TeleprompterDock::applyStyle()
 {
+	// Dock chrome is painted with an rgba() alpha driven by m_opacity so the
+	// docked dock background is translucent (TODO 00006.b). The prompter stage
+	// keeps its own opaque black fill (PrompterStage palette) so reading text
+	// stays legible regardless of this setting. Full see-through-to-desktop is
+	// only possible when the dock is floated (window opacity, applyOpacity()).
+	const QString rootBg = rgbaFill(kBg, m_opacity);
+	const QString chromeBg = rgbaFill(kPanel, m_opacity);
 	setStyleSheet(
 		QStringLiteral(
 			"#TeleprompterDockRoot { background:%1; color:%3; }"
@@ -497,18 +543,18 @@ void TeleprompterDock::applyStyle()
 			"QLabel#val { color:%5; font-weight:600; }"
 			"QLabel#sub { color:%4; font-size:11px; }"
 			"QLabel#dot { border-radius:5px; background:%4; }"
+			// Transport controls: uniform white glyphs on the neutral
+			// panel fill — no colored play/pause/stop (TODO 00006.a).
 			"QPushButton {"
 			"  background:%6; color:%3; border:1px solid %7;"
 			"  border-radius:6px; padding:7px 12px;"
 			"  font-size:13px; font-weight:600; }"
 			"QPushButton:hover { border-color:%5; }"
 			"QPushButton:disabled { color:%4; }"
-			"QPushButton[kind=\"primary\"] {"
-			"  background:%5; color:#06121e; border-color:%5; }"
-			"QPushButton[kind=\"danger\"] {"
-			"  color:%8; border-color:%8; }"
+			// Active/pressed toggle: a subtle lighter neutral fill,
+			// keeping the icon white (no colored accent fill).
 			"QPushButton[active=\"true\"] {"
-			"  background:%5; color:#06121e; border-color:%5; }"
+			"  background:%7; color:%3; border-color:%5; }"
 			"QPlainTextEdit {"
 			"  background:%6; color:%3; border:1px solid %7;"
 			"  border-radius:8px; padding:8px;"
@@ -529,8 +575,19 @@ void TeleprompterDock::applyStyle()
 			"QLabel#countdown {"
 			"  background:rgba(0,0,0,180); color:#ffffff;"
 			"  font-size:120px; font-weight:800; }")
-			.arg(kBg, kPanel, kText, kMuted, kAccent, kPanel2,
-			     kBorder, kBad));
+			// Bind %1..%7 via chained single-arg arg() (not the
+			// multi-arg overload) so the QString rgba fills mix with
+			// the const char* palette colours cleanly. There is no %8:
+			// the danger (kBad) rule was dropped in the white-icon
+			// restyle (00006.a) — kBad now lives only in
+			// setRecordingIndicator's own stylesheet.
+			.arg(rootBg)
+			.arg(chromeBg)
+			.arg(QLatin1String(kText))
+			.arg(QLatin1String(kMuted))
+			.arg(QLatin1String(kAccent))
+			.arg(QLatin1String(kPanel2))
+			.arg(QLatin1String(kBorder)));
 }
 
 void TeleprompterDock::wireSignals()
@@ -589,6 +646,11 @@ void TeleprompterDock::wireSignals()
 		applyScrollSpeed(); // baseline scales with line height too
 		saveSettings();
 	});
+	connect(m_opacitySlider, &QSlider::valueChanged, this, [this](int v) {
+		m_opacity = v / 100.0; // 0.30–1.00 dock-background opacity
+		applyOpacity();
+		saveSettings();
+	});
 	connect(m_countdownCombo,
 		QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		[this](int) {
@@ -639,6 +701,9 @@ void TeleprompterDock::loadSettings()
 			m_speedMult = legacy / base;
 	}
 	m_speedMult = qBound(0.25, m_speedMult, 3.0);
+	if (o.contains("opacity"))
+		m_opacity = o.value("opacity").toDouble(m_opacity);
+	m_opacity = qBound(0.30, m_opacity, 1.0);
 	if (o.contains("countdownLen"))
 		m_countdownLen = o.value("countdownLen").toInt(m_countdownLen);
 	if (o.contains("guide"))
@@ -670,6 +735,7 @@ void TeleprompterDock::saveSettingsNow()
 	o["fontSize"] = m_fontSize;
 	o["speedMult"] = m_speedMult; // relative multiplier (see loadSettings)
 	o["lineHeight"] = m_lineHeight;
+	o["opacity"] = m_opacity; // dock-background opacity (TODO 00006.b)
 	o["countdownLen"] = m_countdownLen;
 	o["guide"] = m_guide;
 	o["editorOpen"] = m_editorOpen;
@@ -713,6 +779,50 @@ void TeleprompterDock::applyScrollSpeed()
 		m_speedVal->setText(QStringLiteral("%1 px/s  ×%2")
 					    .arg(m_speed)
 					    .arg(m_speedMult, 0, 'f', 2));
+}
+
+void TeleprompterDock::applyOpacity()
+{
+	// Two mechanisms, best-effort by dock state (TODO 00006.b):
+	//
+	//  1. FLOATED — the dock is its own top-level window, so setWindowOpacity
+	//     on window() yields true see-through-to-desktop transparency (this is
+	//     the only path to real transparency for a docked Qt widget). window()
+	//     is OBS's QDockWidget when floated; it is OBS's main window when
+	//     docked, where per-widget opacity does not apply — so we only lower
+	//     window opacity when floated, never dimming all of OBS.
+	//
+	//  2. DOCKED — the widget is composited into OBS's opaque main window, so
+	//     true see-through is impossible; we instead paint the dock chrome
+	//     (root background + bars/panels) with a translucent rgba() alpha for a
+	//     visible translucency. The prompter stage keeps its own opaque black
+	//     fill (set in PrompterStage) so the reading text stays fully legible.
+	if (m_opacityVal)
+		m_opacityVal->setText(
+			QString::number(int(qRound(m_opacity * 100))) + "%");
+
+	// Find the hosting QDockWidget (OBS wraps our widget in one). If it is
+	// FLOATING, it is its own top-level window and setWindowOpacity gives true
+	// desktop see-through. If it is DOCKED, window() is OBS's main window — we
+	// must NOT lower its opacity (that would dim all of OBS), so we leave the
+	// floating dock at full and reset any prior floating opacity to 1.0.
+	QDockWidget *host = nullptr;
+	for (QWidget *w = parentWidget(); w; w = w->parentWidget()) {
+		if (auto *dw = qobject_cast<QDockWidget *>(w)) {
+			host = dw;
+			break;
+		}
+	}
+	if (host) {
+		if (host->isFloating())
+			host->setWindowOpacity(m_opacity);
+		else
+			host->setWindowOpacity(1.0);
+	}
+
+	// Re-apply the stylesheet so the rgba() chrome alpha (built from
+	// m_opacity in applyStyle) refreshes for the docked-state translucency.
+	applyStyle();
 }
 
 void TeleprompterDock::updateReadTime()
