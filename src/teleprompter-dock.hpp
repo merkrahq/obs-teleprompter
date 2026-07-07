@@ -74,6 +74,9 @@ private:
 	void renderPrompter();
 	void updateReadTime();
 	void applyPrompterFont();
+	// Recompute the effective scroll speed from the font-derived baseline and
+	// the manual multiplier; updates m_speed + the speed readout label.
+	void applyScrollSpeed();
 
 	// scroll engine
 	void tick();              // ~60 Hz timer callback
@@ -104,7 +107,12 @@ private:
 	// ── settings model (ports index.html `defaults`) ─────────────────────
 	QString m_script;
 	int m_fontSize = 48;      // px
-	int m_speed = 60;         // px / second
+	// Base scroll speed is DERIVED from font size (hold lines/sec constant):
+	// basePxPerSec = fontSize * lineHeight * kLinesPerSec. The speed slider is a
+	// relative MULTIPLIER on that baseline, so it survives font changes. m_speed
+	// is the effective px/s (base * mult), recomputed on any font/line/mult change.
+	int m_speed = 60;         // px / second (effective = base * multiplier)
+	double m_speedMult = 1.0; // manual override on the font-derived baseline
 	double m_lineHeight = 1.5;
 	int m_countdownLen = 3;   // seconds (0 = none)
 	bool m_guide = false;

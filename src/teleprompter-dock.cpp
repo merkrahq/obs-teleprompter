@@ -51,6 +51,17 @@ const char *kAccent = "#3ea6ff";
 const char *kBad = "#ff5b5b";
 
 TeleprompterDock *g_instance = nullptr;
+
+// Font-derived baseline scroll speed. We hold LINES PER SECOND constant so the
+// perceived reading cadence stays roughly the same across font sizes: a smaller
+// font scrolls proportionally slower. kLinesPerSec is chosen so the historical
+// defaults (48px font, 1.5 line-height) yield the historical ~60 px/s baseline
+// (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
+constexpr double kLinesPerSec = 0.83333;
+double fontBaseSpeed(int fontPx, double lineHeight)
+{
+	return double(fontPx) * lineHeight * kLinesPerSec;
+}
 } // namespace
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -245,7 +256,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	// reflect loaded settings into the widgets + prompter
 	m_editor->setPlainText(m_script);
 	m_fontSlider->setValue(m_fontSize);
-	m_speedSlider->setValue(m_speed);
+	m_speedSlider->setValue(int(m_speedMult * 100));
 	m_lineSlider->setValue(int(m_lineHeight * 100));
 	m_countdownCombo->setCurrentIndex(
 		m_countdownCombo->findData(m_countdownLen));
@@ -256,8 +267,8 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_scriptToggle->setProperty("active", m_editorOpen);
 
 	m_fontVal->setText(QString::number(m_fontSize) + "px");
-	m_speedVal->setText(QString::number(m_speed));
 	m_lineVal->setText(QString::number(m_lineHeight, 'f', 2));
+	applyScrollSpeed(); // derives m_speed + sets m_speedVal from font/mult
 
 	applyPrompterFont();
 	m_stage->setGuide(m_guide);
@@ -375,21 +386,24 @@ void TeleprompterDock::buildUi()
 		row->addWidget(m_fontVal);
 		setLay->addLayout(row);
 		m_fontSlider = new QSlider(Qt::Horizontal);
-		m_fontSlider->setRange(18, 120);
+		m_fontSlider->setRange(12, 120);
 		setLay->addWidget(m_fontSlider);
 	}
 	// scroll speed
 	{
 		auto *row = new QHBoxLayout();
-		auto *lab = mkFieldLabel(QStringLiteral("Scroll speed (px/s)"));
-		m_speedVal = new QLabel(QStringLiteral("60"));
+		// Speed slider is a MULTIPLIER on the font-derived baseline
+		// (0.25×–3.0×, stored /100). The readout shows the effective px/s
+		// and the multiplier so the coupling is legible.
+		auto *lab = mkFieldLabel(QStringLiteral("Scroll speed"));
+		m_speedVal = new QLabel(QStringLiteral("60 px/s"));
 		m_speedVal->setObjectName("val");
 		row->addWidget(lab);
 		row->addStretch(1);
 		row->addWidget(m_speedVal);
 		setLay->addLayout(row);
 		m_speedSlider = new QSlider(Qt::Horizontal);
-		m_speedSlider->setRange(10, 400);
+		m_speedSlider->setRange(25, 300); // /100 → 0.25×–3.0×
 		m_speedSlider->setSingleStep(5);
 		setLay->addWidget(m_speedSlider);
 	}
@@ -560,17 +574,19 @@ void TeleprompterDock::wireSignals()
 		m_fontSize = v;
 		m_fontVal->setText(QString::number(v) + "px");
 		applyPrompterFont();
+		applyScrollSpeed(); // baseline scales with font size
 		saveSettings();
 	});
 	connect(m_speedSlider, &QSlider::valueChanged, this, [this](int v) {
-		m_speed = v;
-		m_speedVal->setText(QString::number(v));
+		m_speedMult = v / 100.0; // manual override multiplier
+		applyScrollSpeed();
 		saveSettings();
 	});
 	connect(m_lineSlider, &QSlider::valueChanged, this, [this](int v) {
 		m_lineHeight = v / 100.0;
 		m_lineVal->setText(QString::number(m_lineHeight, 'f', 2));
 		applyPrompterFont();
+		applyScrollSpeed(); // baseline scales with line height too
 		saveSettings();
 	});
 	connect(m_countdownCombo,
@@ -609,10 +625,20 @@ void TeleprompterDock::loadSettings()
 		m_script = o.value("script").toString();
 	if (o.contains("fontSize"))
 		m_fontSize = o.value("fontSize").toInt(m_fontSize);
-	if (o.contains("speed"))
-		m_speed = o.value("speed").toInt(m_speed);
 	if (o.contains("lineHeight"))
 		m_lineHeight = o.value("lineHeight").toDouble(m_lineHeight);
+	// Scroll speed is persisted as a relative MULTIPLIER (speedMult). For
+	// back-compat with pre-0.1.4 settings that stored absolute px/s ("speed"),
+	// derive the multiplier from that value against the font-derived baseline.
+	if (o.contains("speedMult")) {
+		m_speedMult = o.value("speedMult").toDouble(m_speedMult);
+	} else if (o.contains("speed")) {
+		const double base = fontBaseSpeed(m_fontSize, m_lineHeight);
+		const int legacy = o.value("speed").toInt(m_speed);
+		if (base > 0.0)
+			m_speedMult = legacy / base;
+	}
+	m_speedMult = qBound(0.25, m_speedMult, 3.0);
 	if (o.contains("countdownLen"))
 		m_countdownLen = o.value("countdownLen").toInt(m_countdownLen);
 	if (o.contains("guide"))
@@ -642,7 +668,7 @@ void TeleprompterDock::saveSettingsNow()
 	QJsonObject o;
 	o["script"] = m_script;
 	o["fontSize"] = m_fontSize;
-	o["speed"] = m_speed;
+	o["speedMult"] = m_speedMult; // relative multiplier (see loadSettings)
 	o["lineHeight"] = m_lineHeight;
 	o["countdownLen"] = m_countdownLen;
 	o["guide"] = m_guide;
@@ -674,6 +700,19 @@ void TeleprompterDock::renderPrompter()
 void TeleprompterDock::applyPrompterFont()
 {
 	m_stage->setFontPx(m_fontSize, m_lineHeight);
+}
+
+void TeleprompterDock::applyScrollSpeed()
+{
+	// Effective px/s = font-derived baseline * manual multiplier. Recomputed
+	// whenever font size, line height, or the multiplier changes so the reading
+	// cadence stays consistent while the slider override survives font changes.
+	const double base = fontBaseSpeed(m_fontSize, m_lineHeight);
+	m_speed = qMax(1, int(qRound(base * m_speedMult)));
+	if (m_speedVal)
+		m_speedVal->setText(QStringLiteral("%1 px/s  ×%2")
+					    .arg(m_speed)
+					    .arg(m_speedMult, 0, 'f', 2));
 }
 
 void TeleprompterDock::updateReadTime()
