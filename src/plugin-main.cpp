@@ -54,6 +54,16 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		register_dock();
 		break;
+	case OBS_FRONTEND_EVENT_RECORDING_STARTED:
+		// Confirmed record start — the dock gates its scroll on this
+		// (reliability-first; port of the 724aa91 race fix's intent).
+		if (auto *d = TeleprompterDock::instance())
+			d->onRecordingStarted();
+		break;
+	case OBS_FRONTEND_EVENT_RECORDING_STOPPED:
+		if (auto *d = TeleprompterDock::instance())
+			d->onRecordingStopped();
+		break;
 	case OBS_FRONTEND_EVENT_EXIT:
 		obs_frontend_remove_dock(kDockId);
 		break;
