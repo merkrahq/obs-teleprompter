@@ -126,15 +126,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 endif()
 
+# ── Deterministic, version-free artifact names ───────────────────────────────
+# The README links to https://github.com/merkrahq/obs-teleprompter/releases/latest/download/<name>,
+# whose redirect always resolves to the newest release's asset. For those links
+# to be stable across version bumps, the artifact filenames must NOT embed the
+# version. We therefore pin CPACK_PACKAGE_FILE_NAME per OS/arch. (The DEB
+# generator otherwise re-derives its own <pkg>_<ver>_<arch>.deb name, so it is
+# pinned explicitly too via CPACK_DEBIAN_FILE_NAME.)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(_arch "arm64")
+else()
+  set(_arch "x86_64")
+endif()
+
 if(APPLE)
   set(CPACK_GENERATOR "productbuild;TGZ")
+  # macOS is shipped as a universal-ish single bundle; arch omitted from the name.
+  set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-macos")
 elseif(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
+  set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-windows-${_arch}")
   set(CPACK_NSIS_PACKAGE_NAME "OBS Docked Teleprompter")
   set(CPACK_NSIS_DISPLAY_NAME "OBS Docked Teleprompter")
   set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
 else()
   set(CPACK_GENERATOR "DEB;TGZ")
+  set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-linux-${_arch}")
   # Install DEB payloads under the absolute system prefix so the .so/data land in
   # the real OBS dirs when the user runs `dpkg -i` (CPack DEB honors the install
   # DESTINATIONs relative to CPACK_PACKAGING_INSTALL_PREFIX).
@@ -145,6 +162,34 @@ else()
   # OBS + Qt6 are runtime deps; shlibdeps fills in the exact libobs/Qt versions.
   set(CPACK_DEBIAN_PACKAGE_DEPENDS "obs-studio (>= 28)")
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+  # Pin the .deb filename too (the DEB generator ignores CPACK_PACKAGE_FILE_NAME).
+  set(CPACK_DEBIAN_FILE_NAME "obs-teleprompter-linux-${_arch}.deb")
 endif()
 
 include(CPack)
+
+# ── Portable "drag-into-OBS" plugin folder ───────────────────────────────────
+# Separate from the CPack system installers above: this stages the plugin in
+# OBS's per-user drop-in layout —
+#     obs-teleprompter/bin/64bit/obs-teleprompter.{so,dll}
+#     obs-teleprompter/data/locale/en-US.ini
+# — which a user can unzip and drop straight into their OBS plugins dir with no
+# installer and no admin rights:
+#     Linux   → ~/.config/obs-studio/plugins/
+#     Windows → %APPDATA%\obs-studio\plugins\
+#     macOS   → ~/Library/Application Support/obs-studio/plugins/
+# The `portable` target builds this tree under build/portable/; CI zips it into
+# obs-teleprompter-<os>-portable.zip and attaches it to the Release beside the
+# installers. `README.md` links to it as the drag-in option.
+set(_portable_root "${CMAKE_BINARY_DIR}/portable/${PROJECT_NAME}")
+add_custom_target(
+  portable
+  COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/portable"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${_portable_root}/bin/64bit"
+  COMMAND ${CMAKE_COMMAND} -E copy
+          "$<TARGET_FILE:${PROJECT_NAME}>" "${_portable_root}/bin/64bit/"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/data" "${_portable_root}/data"
+  DEPENDS ${PROJECT_NAME}
+  COMMENT "Staging portable drag-into-OBS plugin folder → build/portable/${PROJECT_NAME}/"
+  VERBATIM)

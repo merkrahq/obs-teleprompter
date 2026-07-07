@@ -89,6 +89,30 @@ cd build && cpack
 - **Windows** → `NSIS` `.exe` + `.zip` (CI-only).
 - **macOS** → `productbuild` `.pkg` + `.tar.gz` (CI-only).
 
+Artifact filenames are pinned version-free (`obs-teleprompter-<os>-<arch>.*`) so the
+README's `releases/latest/download/<name>` links stay stable across version bumps.
+
+### Portable "drag-into-OBS" folder
+
+Separate from the system installers, the `portable` target stages the plugin in
+OBS's per-user drop-in layout so a user can unzip and drag it straight into OBS
+with no installer / no admin rights:
+
+```sh
+cmake --build build --target portable    # → build/portable/obs-teleprompter/
+#   obs-teleprompter/bin/64bit/obs-teleprompter.so   (.dll on Windows)
+#   obs-teleprompter/data/locale/en-US.ini
+cmake -E tar cf obs-teleprompter-linux-portable.zip --format=zip \
+  -- build/portable/obs-teleprompter   # (CI zips it per OS)
+```
+
+Drop the unzipped `obs-teleprompter` folder into `~/.config/obs-studio/plugins/`
+(Linux), `%APPDATA%\obs-studio\plugins\` (Windows), or
+`~/Library/Application Support/obs-studio/plugins/` (macOS). **Verified on this
+box:** dragged the Linux portable folder into the per-user plugins dir → headless
+OBS 30 loaded it and registered the dock, zero errors. CI attaches
+`obs-teleprompter-<os>-portable.zip` to each Release beside the installers.
+
 Installers are **unsigned** for now (decision `ship-unsigned-installers-first`):
 the Windows `.exe` trips SmartScreen and the macOS `.pkg` trips Gatekeeper until
 signing certs exist — the README documents the one-time override.

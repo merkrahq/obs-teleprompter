@@ -32,29 +32,52 @@ together. Everything is local; nothing is sent anywhere.
 
 ## Install
 
-Download the installer for your OS from the [**Releases**](https://github.com/merkrahq/obs-teleprompter/releases)
-page and run it. After installing, (re)launch OBS Studio — the **Teleprompter** dock appears
-automatically under the **Docks** menu.
+There are two ways to install — an **installer** for your OS, or a **portable folder** you drag
+straight into OBS. Both make the **Teleprompter** dock appear automatically the next time you
+launch OBS (no Custom Browser Dock, no URL, no WebSocket config).
 
-| OS | File | Install |
+> The links below always point at the newest release (GitHub's `latest/download` redirect). The
+> full list of assets for any version is on the
+> [**Releases**](https://github.com/merkrahq/obs-teleprompter/releases) page.
+
+### Option A — installer
+
+| OS | Download | Then |
 |---|---|---|
-| **Linux** | `obs-teleprompter-*-Linux.deb` | `sudo dpkg -i obs-teleprompter-*-Linux.deb` (or `sudo apt install ./obs-teleprompter-*-Linux.deb` to pull deps). A `.tar.gz` is also provided — extract it over `/usr`. |
-| **Windows** | `obs-teleprompter-*-win64.exe` | Run the installer. |
-| **macOS** | `obs-teleprompter-*-macOS.pkg` | Open the `.pkg` and follow the installer. |
+| **Linux** | [`obs-teleprompter-linux-x86_64.deb`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-linux-x86_64.deb) | `sudo apt install ./obs-teleprompter-linux-x86_64.deb` (pulls deps) or `sudo dpkg -i obs-teleprompter-linux-x86_64.deb` |
+| **Windows** | [`obs-teleprompter-windows-x86_64.exe`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-windows-x86_64.exe) | Run the installer |
+| **macOS** | [`obs-teleprompter-macos.pkg`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-macos.pkg) | Open the `.pkg` and follow the steps |
 
-### ⚠️ Unsigned installers — one-time OS override
+### Option B — portable folder (drag into OBS, no admin rights)
 
-These installers are currently **unsigned** (code-signing certificates aren't held yet), so your
-OS may warn you the first time:
+Download the compressed folder for your OS, **unzip it**, and drop the resulting
+`obs-teleprompter` folder into your OBS plugins directory — no installer, no root/admin.
+
+| OS | Download | Drop the `obs-teleprompter` folder into |
+|---|---|---|
+| **Linux** | [`obs-teleprompter-linux-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-linux-portable.zip) | `~/.config/obs-studio/plugins/` |
+| **Windows** | [`obs-teleprompter-windows-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-windows-portable.zip) | `%APPDATA%\obs-studio\plugins\` |
+| **macOS** | [`obs-teleprompter-macos-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-macos-portable.zip) | `~/Library/Application Support/obs-studio/plugins/` |
+
+Each zip contains a single `obs-teleprompter/` folder in OBS's plugin layout
+(`bin/64bit/` + `data/`). After dropping it in, restart OBS.
+
+> A system `.tar.gz` (Linux) is also attached for packagers — it extracts over `/usr`. For a
+> plain drag-in, use the **portable** zip above, not the `.tar.gz`.
+
+### ⚠️ Unsigned — one-time OS override
+
+The Windows/macOS artifacts are currently **unsigned** (code-signing certificates aren't held
+yet), so your OS may warn you the first time:
 
 - **Windows / SmartScreen:** if you see "Windows protected your PC," click **More info → Run
   anyway**.
 - **macOS / Gatekeeper:** if the `.pkg` is blocked, **right-click it → Open** (instead of
   double-clicking), or clear the quarantine flag:
-  `xattr -dr com.apple.quarantine obs-teleprompter-*-macOS.pkg`.
+  `xattr -dr com.apple.quarantine obs-teleprompter-macos.pkg`.
 
-Linux `.deb`/`.tar.gz` need no such override. Signing/notarization will be added once certs are
-in place; until then these steps are expected and safe for artifacts you downloaded from the
+The Linux `.deb`/`.zip`/`.tar.gz` need no such override. Signing/notarization will be added once
+certs are in place; until then these steps are expected and safe for artifacts downloaded from the
 official Releases page.
 
 ## Use

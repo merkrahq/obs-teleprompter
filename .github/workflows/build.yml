@@ -125,15 +125,33 @@ jobs:
         working-directory: build
         run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
 
+      # ── Portable "drag-into-OBS" folder (no installer, no admin rights) ──────
+      - name: Stage portable plugin folder
+        run: cmake --build build --config RelWithDebInfo --target portable
+
+      - name: Zip portable folder
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)   os=linux ;;
+            Windows) os=windows ;;
+            macOS)   os=macos ;;
+          esac
+          ( cd build/portable && \
+            cmake -E tar cf "obs-teleprompter-${os}-portable.zip" --format=zip obs-teleprompter )
+          ls -l build/portable/*.zip
+
       - name: Collect installers
         shell: bash
         run: |
           mkdir -p dist
-          # DEB/TGZ/NSIS(.exe)/ZIP/PKG all land in build/ next to CPackConfig.
+          # DEB/TGZ/NSIS(.exe)/ZIP/PKG all land in build/ next to CPackConfig;
+          # the portable drag-in zip lands in build/portable/.
           find build -maxdepth 1 -type f \
             \( -name '*.deb' -o -name '*.tar.gz' -o -name '*.exe' \
                -o -name '*.zip' -o -name '*.pkg' -o -name '*.dmg' \) \
             -exec cp {} dist/ \;
+          cp build/portable/*-portable.zip dist/ 2>/dev/null || true
           ls -l dist
 
       - name: Upload artifacts
@@ -161,13 +179,24 @@ jobs:
           files: artifacts/**/*
           generate_release_notes: true
           body: |
-            Native OBS teleprompter dock — per-OS installers.
+            Native OBS teleprompter dock — per-OS installers **and** drag-into-OBS
+            portable folders.
 
-            **Install:** download the file for your OS and run it. After install,
-            launch OBS Studio — the **Teleprompter** dock appears automatically
-            under **Docks** (no Custom Browser Dock, no URL, no WebSocket config).
+            **Option A — installer:** download the file for your OS and run it
+            (`*-linux-x86_64.deb`, `*-windows-x86_64.exe`, `*-macos.pkg`).
 
-            > These installers are **unsigned**. Windows SmartScreen may warn:
+            **Option B — portable (no admin rights):** download
+            `obs-teleprompter-<os>-portable.zip`, unzip it, and drop the
+            `obs-teleprompter` folder into your OBS plugins dir:
+            `~/.config/obs-studio/plugins/` (Linux),
+            `%APPDATA%\obs-studio\plugins\` (Windows), or
+            `~/Library/Application Support/obs-studio/plugins/` (macOS).
+
+            Either way, launch OBS Studio and the **Teleprompter** dock appears
+            automatically under **Docks** (no Custom Browser Dock, no URL, no
+            WebSocket config).
+
+            > The installers are **unsigned**. Windows SmartScreen may warn:
             > click **More info → Run anyway**. macOS Gatekeeper may block the
             > `.pkg`: **right-click → Open**, or run
             > `xattr -dr com.apple.quarantine <file>.pkg`. See the README.
