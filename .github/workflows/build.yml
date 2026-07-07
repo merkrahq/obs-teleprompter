@@ -183,11 +183,23 @@ jobs:
             # tree so any path mismatch stays visible in the log.
             echo "=== obs-sdk config packages ==="
             find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) 2>/dev/null | sort
-            PREFIX="$PWD/obs-sdk;$PWD/obs-sdk/cmake;$PWD/obs-sdk/lib/cmake"
+            # IMPORTANT: on Windows, bash's $PWD is an MSYS path (/d/a/…) that the
+            # NATIVE Windows cmake.exe cannot resolve — so a CMAKE_PREFIX_PATH
+            # built from $PWD silently matches nothing and find_package(libobs)
+            # fails even though the config is right there. Convert to a Windows
+            # path (D:/a/…) with `pwd -W` (Git-bash) for the prefix. macOS/Linux
+            # keep the plain Unix $PWD.
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              ROOT="$(pwd -W)"
+            else
+              ROOT="$PWD"
+            fi
+            echo "ROOT=$ROOT"
+            PREFIX="$ROOT/obs-sdk;$ROOT/obs-sdk/cmake;$ROOT/obs-sdk/lib/cmake"
             if [ "${{ runner.os }}" = "macOS" ]; then
               cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
                 -DCMAKE_PREFIX_PATH="$PREFIX" \
-                -DCMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks"
+                -DCMAKE_FRAMEWORK_PATH="$ROOT/obs-sdk/Frameworks"
             else
               cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
                 -DCMAKE_PREFIX_PATH="$PREFIX"
