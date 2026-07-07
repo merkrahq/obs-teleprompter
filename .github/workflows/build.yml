@@ -235,32 +235,43 @@ jobs:
         working-directory: build
         run: |
           pkg=$(ls *.pkg | head -n1)
-          echo "Expanding $pkg"
-          # `pkgutil --expand-full` DECOMPRESSES each component's Payload onto disk
-          # (not a `Payload/` dir — that was the prior wrong assumption that
-          # enumerated nothing). We don't hard-code the resulting layout: dump the
-          # WHOLE expanded tree for diagnosis, then match the real bundle files by
-          # name ANYWHERE under it, plus assert the install-location prefix.
-          pkgutil --expand-full "$pkg" pkg-expanded
-          echo "=== full expanded .pkg tree ==="
-          find pkg-expanded | sort
-          # Enumerate every extracted file/symlink so the assert is layout-agnostic.
-          paths=$(find pkg-expanded \( -type f -o -type l \))
-          echo "=== extracted file paths ==="
+          echo "Extracting $pkg with xar"
+          # This is a productbuild DISTRIBUTION archive: a `xar` container holding
+          # a Distribution XML + a component .pkg under Contents/Packages/, each
+          # component carrying a cpio `Payload`. `pkgutil --expand-full` only
+          # unwrapped the outer Distribution + Resources here (no Payload dir), so
+          # switch to `xar -xf`, which faithfully extracts the whole tree INCLUDING
+          # the component .pkg's Payload/PackageInfo. Then decompress the Payload
+          # cpio (gzip on modern CPack; fall back to xz/raw) and list its entries.
+          mkdir -p pkg-xar
+          xar -xf "$pkg" -C pkg-xar
+          echo "=== full xar-extracted tree ==="
+          find pkg-xar | sort
+          # Enumerate the archived install paths from every component Payload cpio.
+          # CPack's productbuild Payload is a gzip'd cpio; try gzip, then xz, then
+          # raw cpio, so the listing survives a compression change.
+          paths=""
+          while IFS= read -r pl; do
+            for dec in 'gzip -dc' 'xz -dc' 'cat'; do
+              out=$($dec < "$pl" 2>/dev/null | cpio -it 2>/dev/null) && [ -n "$out" ] && { paths="$paths$out"$'\n'; break; }
+            done
+          done < <(find pkg-xar -name Payload)
+          echo "=== .pkg Payload archived paths ==="
           echo "$paths"
-          [ -n "$paths" ] || { echo "FAIL: could not enumerate any .pkg payload files"; exit 1; }
-          # The Mach-O + locale must be present inside the staged .plugin bundle,
-          # regardless of where --expand-full nests the payload root.
+          [ -n "$paths" ] || { echo "FAIL: could not enumerate any .pkg Payload files"; exit 1; }
+          # The Mach-O + locale must be present inside the staged .plugin bundle.
+          # productbuild strips the leading '/', so match with an optional leading
+          # './' or path prefix.
           echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
-            || { echo "FAIL: .plugin Mach-O not in the .pkg payload"; exit 1; }
+            || { echo "FAIL: .plugin Mach-O not in the .pkg Payload"; exit 1; }
           echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
             || { echo "FAIL: locale not inside the .plugin bundle"; exit 1; }
           # WHERE the bundle lands (the GO-005 defect class) is the component's
           # install-location prefix in PackageInfo — assert it is the OBS plugins
           # dir, not the filesystem root or an arbitrary prefix.
           echo "=== PackageInfo install-location(s) ==="
-          find pkg-expanded -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' || true
-          find pkg-expanded -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' \
+          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' || true
+          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' \
             | grep -E 'install-location="/?Library/Application Support/obs-studio/plugins/?"' \
             || { echo "FAIL: component install-location is not the OBS plugins dir"; exit 1; }
           echo "OK: macOS .pkg installs the plugin bundle into the OBS plugin dir"
