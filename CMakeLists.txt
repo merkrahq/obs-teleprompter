@@ -152,7 +152,15 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/merkrahq/obs-teleprompter")
 set(CPACK_PACKAGE_CONTACT "admin@merkra.com")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
-  set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+  # CPack's macOS productbuild + Windows NSIS generators reject a license file
+  # whose extension isn't one of .txt/.rtf/.html ("CPack Error: Bad file
+  # extension specified"). Our LICENSE has no extension, so stage a .txt copy in
+  # the build tree and point CPack at that.
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    "${CMAKE_BINARY_DIR}/LICENSE.txt"
+    COPYONLY)
+  set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_BINARY_DIR}/LICENSE.txt")
 endif()
 
 # ── Deterministic, version-free artifact names ───────────────────────────────

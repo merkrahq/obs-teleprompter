@@ -158,20 +158,22 @@ jobs:
             cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
           else
             # obs-sdk holds BOTH the OBS SDK (from source) and the obs-deps Qt6.
-            # List several roots so find_package resolves the libobs /
-            # obs-frontend-api config packages wherever they installed
-            # (Windows: cmake/ or lib/cmake/<pkg>/; macOS: inside the framework +
-            # lib/cmake/). NOTE: the ';' list separator must be QUOTED — bash
-            # would otherwise treat it as a command separator. Print the tree so
-            # any remaining path mismatch is visible in the log.
+            # The libobs / obs-frontend-api config packages install to
+            # obs-sdk/cmake/ (confirmed in-log), and Qt6 to obs-sdk/lib/cmake/.
+            # We must hand find_package a MULTI-PATH prefix, but a ';'-separated
+            # value passed via `-DCMAKE_PREFIX_PATH="a;b;c"` does NOT survive
+            # bash-on-Windows — CMake receives only the first path, so
+            # find_package(libobs) fails at Configure. Export the list through the
+            # ENVIRONMENT instead (CMake reads CMAKE_PREFIX_PATH /
+            # CMAKE_FRAMEWORK_PATH from env verbatim), which sidesteps shell
+            # splitting entirely. Print the tree so any path mismatch stays
+            # visible in the log.
             echo "=== obs-sdk config packages ==="
             find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) \
               \( -iname 'libobs*' -o -iname 'obs-frontend*' \) 2>/dev/null || true
-            PREFIX="$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake;$PWD/obs-sdk/cmake"
-            FWPATH="$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -DCMAKE_PREFIX_PATH="$PREFIX" \
-              -DCMAKE_FRAMEWORK_PATH="$FWPATH"
+            export CMAKE_PREFIX_PATH="$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake;$PWD/obs-sdk/cmake"
+            export CMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
           fi
 
       - name: Build
