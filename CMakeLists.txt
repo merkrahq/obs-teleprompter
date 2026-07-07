@@ -33,20 +33,33 @@ target_sources(
 find_package(libobs REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE OBS::libobs)
 
-# macOS: OBS's imported libobs target drags in the legacy `AGL` framework via its
-# interface link libraries, but AGL was removed from modern macOS SDKs
-# (`ld: framework 'AGL' not found`). We don't use AGL — strip it from the
-# imported target's interface so the plugin links against the current SDK.
+# macOS: OBS's imported libobs framework drags in the legacy `AGL` framework
+# through its config, but AGL was removed from modern macOS SDKs
+# (`ld: framework 'AGL' not found`). We don't use any AGL symbols. Rather than
+# chase the exact CMake property that injects it (it arrives via the framework's
+# libobsConfig, in a form that's awkward to filter), we stage a tiny empty `AGL`
+# stub framework in the build tree and add it to the linker's framework search
+# path, so `-framework AGL` resolves to a no-op. This keeps the fix local and
+# robust across OBS SDK versions.
 if(APPLE)
-  foreach(_obs_tgt OBS::libobs libobs)
-    if(TARGET ${_obs_tgt})
-      get_target_property(_obs_ill ${_obs_tgt} INTERFACE_LINK_LIBRARIES)
-      if(_obs_ill)
-        list(FILTER _obs_ill EXCLUDE REGEX "(^|/|-)AGL($|\\.framework)")
-        set_target_properties(${_obs_tgt} PROPERTIES INTERFACE_LINK_LIBRARIES "${_obs_ill}")
-      endif()
+  set(_agl_stub_dir "${CMAKE_BINARY_DIR}/stub-frameworks")
+  set(_agl_fw "${_agl_stub_dir}/AGL.framework")
+  file(MAKE_DIRECTORY "${_agl_fw}")
+  # An empty Mach-O dylib named `AGL` is enough for the linker to find the
+  # framework; we reference no symbols from it.
+  if(NOT EXISTS "${_agl_fw}/AGL")
+    execute_process(
+      COMMAND ${CMAKE_CXX_COMPILER} -x c -dynamiclib -o "${_agl_fw}/AGL"
+              -install_name "@rpath/AGL.framework/AGL" -
+      INPUT_FILE /dev/null
+      RESULT_VARIABLE _agl_rc)
+    if(NOT _agl_rc EQUAL 0)
+      # Fallback: empty file — the framework dir presence alone often satisfies
+      # the search; if not, the build log will show it and we adjust.
+      file(TOUCH "${_agl_fw}/AGL")
     endif()
-  endforeach()
+  endif()
+  target_link_options(${PROJECT_NAME} PRIVATE "-F${_agl_stub_dir}")
 endif()
 
 # ── OBS frontend API (dock registration, recording control) ──────────────────

@@ -154,15 +154,25 @@ jobs:
       - name: Configure
         shell: bash
         run: |
-          EXTRA=""
-          if [ "${{ runner.os }}" != "Linux" ]; then
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          else
             # obs-sdk holds BOTH the OBS SDK (from source) and the obs-deps Qt6.
-            # Point at the prefix AND its lib/cmake so find_package resolves the
-            # libobs / obs-frontend-api config packages regardless of subdir, and
-            # add the framework path for macOS's framework-style install.
-            EXTRA="-DCMAKE_PREFIX_PATH=$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake -DCMAKE_FRAMEWORK_PATH=$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
+            # List several roots so find_package resolves the libobs /
+            # obs-frontend-api config packages wherever they installed
+            # (Windows: cmake/ or lib/cmake/<pkg>/; macOS: inside the framework +
+            # lib/cmake/). NOTE: the ';' list separator must be QUOTED — bash
+            # would otherwise treat it as a command separator. Print the tree so
+            # any remaining path mismatch is visible in the log.
+            echo "=== obs-sdk config packages ==="
+            find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) \
+              \( -iname 'libobs*' -o -iname 'obs-frontend*' \) 2>/dev/null || true
+            PREFIX="$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake;$PWD/obs-sdk/cmake"
+            FWPATH="$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_PREFIX_PATH="$PREFIX" \
+              -DCMAKE_FRAMEWORK_PATH="$FWPATH"
           fi
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo $EXTRA
 
       - name: Build
         run: cmake --build build --config RelWithDebInfo
