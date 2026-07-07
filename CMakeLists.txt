@@ -173,6 +173,16 @@ endif()
 # uploads the artifact to the GitHub Release. Artifacts are UNSIGNED (decision
 # `ship-unsigned-installers-first`); the README documents the SmartScreen /
 # Gatekeeper override until signing certs exist.
+# Escape CPACK_* values correctly when CPack re-serializes them into
+# CPackConfig.cmake (which cpack then re-parses). Without this, a value like the
+# Windows install root "$APPDATA\obs-studio\plugins" is written verbatim and its
+# `\o`/`\p` become invalid CMake escapes on the re-parse ("Syntax error in cmake
+# code") — the reason we previously had to use forward slashes (which then leaked
+# into the installed path as ugly MIXED slashes and OBS failed to scan it).
+# CPACK_VERBATIM_VARIABLES makes CPack escape the backslashes so a single clean
+# backslash survives both parse cycles into the generated .nsi. This is a no-op
+# for the Linux/macOS values (no backslashes), so those legs are unaffected.
+set(CPACK_VERBATIM_VARIABLES TRUE)
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VENDOR "merkrahq")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
@@ -245,11 +255,15 @@ elseif(WIN32)
   # OBS scans for user plugins.) The ZIP generator uses the same
   # CPACK_PACKAGE_INSTALL_DIRECTORY, so the .zip contains a ready
   # `obs-teleprompter/bin/64bit`+`data` drop-in tree too.
-  # Use FORWARD slashes (NSIS accepts them): with backslashes, CPack
-  # re-serializes the value into build/CPackConfig.cmake as "$APPDATA\obs-studio
-  # \plugins", where `\o`/`\p` are invalid CMake escapes and fatal the re-parse
-  # ("Syntax error in cmake code"). Forward slashes avoid the escaping entirely.
-  set(CPACK_NSIS_INSTALL_ROOT "$APPDATA/obs-studio/plugins")
+  # Use BACKSLASHES (Windows-native): NSIS emits the install root VERBATIM into
+  # the final path, so forward slashes here leak through as a mixed-slash path
+  # (C:\Users\<u>\AppData\Roaming/obs-studio/plugins\obs-teleprompter) that OBS's
+  # plugin scanner does NOT resolve to its %APPDATA%\obs-studio\plugins scan dir
+  # — the dock never loads (operator-confirmed on v0.1.1, GO-008). The `\o`/`\p`
+  # re-parse crash that forced forward slashes before is now handled by
+  # CPACK_VERBATIM_VARIABLES (set above), which escapes these backslashes through
+  # the CPackConfig.cmake round-trip so a single clean backslash lands in the .nsi.
+  set(CPACK_NSIS_INSTALL_ROOT "$APPDATA\\obs-studio\\plugins")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME}")
   # Per-user install: run unelevated (no UAC), resolve $APPDATA/shortcuts for the
   # current user, and write the uninstall entry under HKCU (SetShellVarContext

@@ -301,11 +301,19 @@ jobs:
           echo "=== NSIS install script: $nsi ==="
           [ -n "$nsi" ] || { echo "FAIL: generated project.nsi not found"; exit 1; }
           grep -nE 'InstallDir|RequestExecutionLevel|SetShellVarContext' "$nsi" || true
-          # InstallDir must be $APPDATA\obs-studio\plugins\obs-teleprompter (CPack
-          # joins CPACK_NSIS_INSTALL_ROOT + CPACK_PACKAGE_INSTALL_DIRECTORY with a
-          # backslash and forward slashes in the ROOT are normalized to '\').
-          grep -E 'InstallDir[[:space:]]+"?\$APPDATA[\\/]obs-studio[\\/]plugins[\\/]obs-teleprompter"?' "$nsi" \
-            || { echo "FAIL: InstallDir is not \$APPDATA\\obs-studio\\plugins\\obs-teleprompter (GO-005 regression: check it is not \$PROGRAMFILES)"; exit 1; }
+          # InstallDir must be $APPDATA\obs-studio\plugins\obs-teleprompter with
+          # BACKSLASH separators. NSIS emits this path verbatim into the installed
+          # location, and OBS's plugin scanner does NOT resolve a mixed/forward-
+          # slash path (…Roaming/obs-studio/plugins\…) to its %APPDATA%\obs-studio\
+          # plugins scan dir — the dock silently never loads (GO-008, operator-
+          # confirmed on v0.1.1). So require literal backslashes here; a forward or
+          # mixed slash is a regression and MUST fail. (Backslashes survive the
+          # CPackConfig re-serialization via CPACK_VERBATIM_VARIABLES.)
+          grep -E 'InstallDir[[:space:]]+"?\$APPDATA\\obs-studio\\plugins\\obs-teleprompter"?' "$nsi" \
+            || { echo "FAIL: InstallDir is not \$APPDATA\\obs-studio\\plugins\\obs-teleprompter with BACKSLASHES (GO-008 mixed-slash regression, or GO-005 \$PROGRAMFILES)"; exit 1; }
+          # Belt-and-suspenders: no forward slash anywhere in the InstallDir line.
+          ! grep -E 'InstallDir[[:space:]]+.*/' "$nsi" \
+            || { echo "FAIL: InstallDir contains a forward slash (mixed-slash path — GO-008)"; exit 1; }
           # Must be a per-user (unelevated) install so $APPDATA resolves to the
           # current user's Roaming dir where OBS scans for plugins.
           grep -E 'RequestExecutionLevel[[:space:]]+user' "$nsi" \
