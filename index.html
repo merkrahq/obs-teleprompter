@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OBS Teleprompter</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --panel-2: #1b2027;
+    --border: #2a323c;
+    --text: #f2f5f8;
+    --muted: #8a97a6;
+    --accent: #3ea6ff;
+    --good: #35c46a;
+    --warn: #f0b429;
+    --bad: #ff5b5b;
+    --prompter-font: 48px;
+    --prompter-line: 1.5;
+    --app-opacity: 1;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* app-opacity wrapper: dims content (approximation of a "transparent" floating dock) */
+  #app {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    opacity: var(--app-opacity);
+  }
+
+  /* ---- Controls bar ---- */
+  #bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #06121e; border-color: var(--accent); }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  button.active { background: var(--accent); color: #06121e; border-color: var(--accent); }
+  .spacer { flex: 1; }
+
+  /* ---- Panels (settings + editor) ---- */
+  .panel {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px;
+  }
+  .panel.hidden { display: none; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px 16px;
+    align-items: center;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .field .row { display: flex; align-items: center; gap: 8px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="text"], input[type="number"], input[type="password"], select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    width: 100%;
+  }
+  .val { color: var(--accent); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; cursor: pointer; }
+  .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 6px 0 0; }
+  legend { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; }
+
+  /* ---- Script editor ---- */
+  #editor {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* ---- Prompter ---- */
+  #stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  #scroller {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  #prompter {
+    padding: 55vh 6vw;
+    font-size: var(--prompter-font);
+    line-height: var(--prompter-line);
+    font-weight: 700;
+    color: #ffffff;
+    text-align: center;
+    letter-spacing: .3px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #prompter.empty { color: var(--muted); font-weight: 500; }
+
+  /* center guide */
+  #guide {
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 0;
+    border-top: 2px solid rgba(62,166,255,.55);
+    pointer-events: none;
+    display: none;
+  }
+  #guide.on { display: block; }
+  #guide::before, #guide::after {
+    content: "";
+    position: absolute; top: -8px;
+    border: 8px solid transparent;
+  }
+  #guide::before { left: 0; border-left-color: var(--accent); }
+  #guide::after { right: 0; border-right-color: var(--accent); }
+
+  /* countdown overlay */
+  #countdown {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,.72);
+    z-index: 5;
+  }
+  #countdown.on { display: flex; }
+  #countnum {
+    font-size: min(38vh, 40vw);
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 0 40px rgba(62,166,255,.6);
+    animation: pop .95s ease-out;
+  }
+  @keyframes pop {
+    0%   { transform: scale(.4); opacity: 0; }
+    30%  { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* ---- Status bar ---- */
+  #status {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 7px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.good { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); }
+  .rec { display: inline-flex; align-items: center; gap: 6px; }
+  .rec .dot.good { background: var(--bad); box-shadow: 0 0 8px var(--bad); animation: blink 1.1s steps(2,start) infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .status-label { color: var(--text); }
+  kbd {
+    background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; font-size: 11px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Controls bar -->
+  <div id="bar">
+    <button id="startBtn" class="primary" title="Start (Ctrl+Enter)">▶ Start</button>
+    <button id="pauseBtn" title="Pause / Resume (Space)" disabled>⏸ Pause</button>
+    <button id="stopBtn" class="danger" title="Stop (Esc)" disabled>⏹ Stop</button>
+    <button id="resetBtn" title="Reset to top">⟲ Reset</button>
+    <div class="spacer"></div>
+    <button id="scriptToggle" title="Show/hide script editor">✎ Script</button>
+    <button id="settingsToggle" title="Show/hide settings">⚙ Settings</button>
+  </div>
+
+  <!-- Settings panel -->
+  <div id="settings" class="panel hidden">
+    <div class="grid">
+      <div class="field">
+        <label>Font size <span class="val" id="fontVal">48px</span></label>
+        <input type="range" id="fontSize" min="18" max="120" step="1" value="48" />
+      </div>
+      <div class="field">
+        <label>Scroll speed <span class="val" id="speedVal">60</span></label>
+        <input type="range" id="speed" min="10" max="400" step="5" value="60" />
+        <span class="sub">pixels / second</span>
+      </div>
+      <div class="field">
+        <label>Line height <span class="val" id="lineVal">1.5</span></label>
+        <input type="range" id="lineHeight" min="1" max="3" step="0.05" value="1.5" />
+      </div>
+      <div class="field">
+        <label>Countdown</label>
+        <select id="countdownLen">
+          <option value="0">None</option>
+          <option value="3" selected>3 seconds</option>
+          <option value="5">5 seconds</option>
+          <option value="10">10 seconds</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Dock opacity <span class="val" id="opacityVal">100%</span></label>
+        <input type="range" id="opacity" min="30" max="100" step="1" value="100" />
+        <span class="sub">dims the dock (see README re: floating)</span>
+      </div>
+      <div class="field">
+        <label>Guides &amp; reading</label>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="guideToggle" /> Center guide line</label>
+        </div>
+        <span class="sub" id="readTime">~0:00 reading time</span>
+      </div>
+    </div>
+
+    <fieldset>
+      <legend>OBS WebSocket</legend>
+      <div class="grid">
+        <div class="field">
+          <label>Host</label>
+          <input type="text" id="obsHost" value="localhost" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label>Port</label>
+          <input type="number" id="obsPort" value="4455" min="1" max="65535" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="obsPass" placeholder="(if set in OBS)" />
+        </div>
+        <div class="field">
+          <label>Connection</label>
+          <div class="row">
+            <button id="connectBtn">Connect</button>
+            <label class="toggle" title="Automatically connect on load"><input type="checkbox" id="autoConnect" /> Auto</label>
+          </div>
+        </div>
+      </div>
+      <div class="sub" style="margin-top:8px">
+        Enable in OBS: <b>Tools → WebSocket Server Settings</b>. Default port 4455.
+      </div>
+    </fieldset>
+  </div>
+
+  <!-- Script editor -->
+  <div id="editorPanel" class="panel hidden">
+    <textarea id="editor" placeholder="Paste or type your script here…"></textarea>
+  </div>
+
+  <!-- Prompter stage -->
+  <div id="stage">
+    <div id="scroller">
+      <div id="prompter" class="empty">Your script will appear here. Paste text under ✎ Script, then press ▶ Start.</div>
+    </div>
+    <div id="guide"></div>
+    <div id="countdown"><div id="countnum">3</div></div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status">
+    <span class="rec"><span class="dot" id="obsDot"></span><span id="obsLabel" class="status-label">OBS: disconnected</span></span>
+    <span class="rec" id="recWrap"><span class="dot" id="recDot"></span><span id="recLabel">Not recording</span></span>
+    <div class="spacer" style="flex:1"></div>
+    <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> start · <kbd>Space</kbd> pause · <kbd>Esc</kbd> stop</span>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------------------------------------------------------------------------
+  // Settings + persistence
+  // ---------------------------------------------------------------------------
+  const LS_KEY = "obs-teleprompter/v1";
+  const $ = (id) => document.getElementById(id);
+
+  const els = {
+    start: $("startBtn"), pause: $("pauseBtn"), stop: $("stopBtn"), reset: $("resetBtn"),
+    scriptToggle: $("scriptToggle"), settingsToggle: $("settingsToggle"),
+    settings: $("settings"), editorPanel: $("editorPanel"), editor: $("editor"),
+    fontSize: $("fontSize"), fontVal: $("fontVal"),
+    speed: $("speed"), speedVal: $("speedVal"),
+    lineHeight: $("lineHeight"), lineVal: $("lineVal"),
+    countdownLen: $("countdownLen"), opacity: $("opacity"), opacityVal: $("opacityVal"),
+    guideToggle: $("guideToggle"), guide: $("guide"), readTime: $("readTime"),
+    obsHost: $("obsHost"), obsPort: $("obsPort"), obsPass: $("obsPass"),
+    connect: $("connectBtn"), autoConnect: $("autoConnect"),
+    stage: $("stage"), scroller: $("scroller"), prompter: $("prompter"),
+    countdown: $("countdown"), countnum: $("countnum"),
+    obsDot: $("obsDot"), obsLabel: $("obsLabel"),
+    recDot: $("recDot"), recLabel: $("recLabel"),
+  };
+
+  const defaults = {
+    script: "", fontSize: 48, speed: 60, lineHeight: 1.5, countdownLen: 3,
+    opacity: 100, guide: false, obsHost: "localhost", obsPort: 4455, obsPass: "",
+    autoConnect: false, editorOpen: false, settingsOpen: false,
+  };
+
+  function load() {
+    try { return { ...defaults, ...(JSON.parse(localStorage.getItem(LS_KEY)) || {}) }; }
+    catch { return { ...defaults }; }
+  }
+  let state = load();
+
+  let saveTimer = null;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+    }, 200);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Apply settings to the DOM
+  // ---------------------------------------------------------------------------
+  const root = document.documentElement.style;
+
+  function renderPrompter() {
+    const txt = state.script.trim();
+    if (txt) {
+      els.prompter.textContent = state.script;
+      els.prompter.classList.remove("empty");
+    } else {
+      els.prompter.textContent = "Your script will appear here. Paste text under ✎ Script, then press ▶ Start.";
+      els.prompter.classList.add("empty");
+    }
+  }
+
+  function updateReadTime() {
+    const words = (state.script.trim().match(/\S+/g) || []).length;
+    const secs = Math.round((words / 150) * 60); // ~150 wpm speaking pace
+    const m = Math.floor(secs / 60), s = secs % 60;
+    els.readTime.textContent = `~${m}:${String(s).padStart(2, "0")} reading time · ${words} words`;
+  }
+
+  function applyAll() {
+    els.editor.value = state.script;
+    els.fontSize.value = state.fontSize;
+    els.speed.value = state.speed;
+    els.lineHeight.value = state.lineHeight;
+    els.countdownLen.value = String(state.countdownLen);
+    els.opacity.value = state.opacity;
+    els.guideToggle.checked = state.guide;
+    els.obsHost.value = state.obsHost;
+    els.obsPort.value = state.obsPort;
+    els.obsPass.value = state.obsPass;
+    els.autoConnect.checked = state.autoConnect;
+
+    root.setProperty("--prompter-font", state.fontSize + "px");
+    root.setProperty("--prompter-line", state.lineHeight);
+    root.setProperty("--app-opacity", state.opacity / 100);
+    els.fontVal.textContent = state.fontSize + "px";
+    els.speedVal.textContent = state.speed;
+    els.lineVal.textContent = Number(state.lineHeight).toFixed(2);
+    els.opacityVal.textContent = state.opacity + "%";
+    els.guide.classList.toggle("on", state.guide);
+
+    els.settings.classList.toggle("hidden", !state.settingsOpen);
+    els.settingsToggle.classList.toggle("active", state.settingsOpen);
+    els.editorPanel.classList.toggle("hidden", !state.editorOpen);
+    els.scriptToggle.classList.toggle("active", state.editorOpen);
+
+    renderPrompter();
+    updateReadTime();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scrolling engine (requestAnimationFrame, sub-pixel accumulation)
+  // ---------------------------------------------------------------------------
+  const scroll = { running: false, paused: false, pos: 0, last: 0, raf: 0 };
+
+  function maxScroll() {
+    return Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
+  }
+
+  function tick(now) {
+    if (!scroll.running) return;
+    if (!scroll.paused) {
+      const dt = (now - scroll.last) / 1000;
+      scroll.pos += state.speed * dt;
+      const max = maxScroll();
+      if (scroll.pos >= max) {
+        scroll.pos = max;
+        els.scroller.scrollTop = scroll.pos;
+        finishScroll();
+        return;
+      }
+      els.scroller.scrollTop = scroll.pos;
+    }
+    scroll.last = now;
+    scroll.raf = requestAnimationFrame(tick);
+  }
+
+  function finishScroll() {
+    // reached the end naturally — stop scrolling + recording
+    stopAll("end of script");
+  }
+
+  function beginScroll() {
+    scroll.running = true;
+    scroll.paused = false;
+    scroll.pos = els.scroller.scrollTop || 0;
+    scroll.last = performance.now();
+    cancelAnimationFrame(scroll.raf);
+    scroll.raf = requestAnimationFrame(tick);
+    setControls("running");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Countdown
+  // ---------------------------------------------------------------------------
+  let countdownTimer = null;
+  let starting = false;
+
+  function runCountdown(seconds) {
+    return new Promise((resolve, reject) => {
+      if (seconds <= 0) { resolve(); return; }
+      let n = seconds;
+      els.countnum.textContent = n;
+      els.countdown.classList.add("on");
+      const step = () => {
+        n -= 1;
+        if (n <= 0) {
+          clearInterval(countdownTimer);
+          els.countdown.classList.remove("on");
+          resolve();
+          return;
+        }
+        // retrigger pop animation
+        els.countnum.textContent = n;
+        els.countnum.style.animation = "none";
+        void els.countnum.offsetWidth;
+        els.countnum.style.animation = "";
+      };
+      countdownTimer = setInterval(step, 1000);
+      runCountdown._cancel = () => { clearInterval(countdownTimer); els.countdown.classList.remove("on"); reject(new Error("cancelled")); };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Start / Stop / Pause orchestration
+  // ---------------------------------------------------------------------------
+  async function startSession() {
+    if (scroll.running || starting) return;
+    if (!state.script.trim()) { flashStatus("Add a script first (✎ Script)."); return; }
+    starting = true;
+    setControls("counting");
+    // reset to top before counting
+    els.scroller.scrollTop = 0;
+    scroll.pos = 0;
+
+    try {
+      await runCountdown(Number(state.countdownLen));
+    } catch {
+      starting = false;
+      setControls("idle");
+      return; // cancelled during countdown
+    }
+
+    // Reliability principle: begin scroll only after recording is confirmed.
+    if (obs.connected) {
+      try {
+        await obs.ensureRecording();
+      } catch (e) {
+        flashStatus("Could not start OBS recording: " + e.message + " — scrolling anyway.");
+      }
+    }
+    starting = false;
+    beginScroll();
+  }
+
+  function pauseResume() {
+    if (!scroll.running) return;
+    scroll.paused = !scroll.paused;
+    if (!scroll.paused) scroll.last = performance.now();
+    els.pause.textContent = scroll.paused ? "▶ Resume" : "⏸ Pause";
+    els.pause.classList.toggle("active", scroll.paused);
+  }
+
+  async function stopAll(reason) {
+    const wasActive = scroll.running || starting;
+    // cancel countdown if mid-count
+    if (starting && runCountdown._cancel) { try { runCountdown._cancel(); } catch {} }
+    starting = false;
+    scroll.running = false;
+    scroll.paused = false;
+    cancelAnimationFrame(scroll.raf);
+    setControls("idle");
+    if (wasActive && obs.connected) {
+      try { await obs.stopRecording(); } catch (e) { /* status will reflect */ }
+    }
+  }
+
+  function resetScroll() {
+    els.scroller.scrollTop = 0;
+    scroll.pos = 0;
+  }
+
+  function setControls(mode) {
+    // mode: idle | counting | running
+    const running = mode === "running";
+    const counting = mode === "counting";
+    els.start.disabled = running || counting;
+    els.pause.disabled = !running;
+    els.stop.disabled = !(running || counting);
+    if (mode === "idle") {
+      els.pause.textContent = "⏸ Pause";
+      els.pause.classList.remove("active");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // OBS WebSocket v5 client (hand-rolled, zero dependencies)
+  // ---------------------------------------------------------------------------
+  const obs = {
+    ws: null, connected: false, identified: false, recording: false,
+    reqId: 0, pending: new Map(), manualClose: false, retry: null,
+
+    async sha256b64(str) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+      let bin = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    },
+
+    connect() {
+      this.manualClose = false;
+      clearTimeout(this.retry);
+      const host = (state.obsHost || "localhost").trim();
+      const port = Number(state.obsPort) || 4455;
+      setObsStatus("warn", `connecting to ${host}:${port}…`);
+      let ws;
+      try {
+        ws = new WebSocket(`ws://${host}:${port}`);
+      } catch (e) {
+        setObsStatus("bad", "bad address");
+        return;
+      }
+      this.ws = ws;
+
+      ws.onmessage = async (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        const { op, d } = msg;
+
+        if (op === 0) { // Hello
+          const identify = { op: 1, d: { rpcVersion: 1, eventSubscriptions: 1 | 64 } };
+          if (d.authentication) {
+            const secret = await this.sha256b64((state.obsPass || "") + d.authentication.salt);
+            identify.d.authentication = await this.sha256b64(secret + d.authentication.challenge);
+          }
+          ws.send(JSON.stringify(identify));
+        } else if (op === 2) { // Identified
+          this.identified = true;
+          this.connected = true;
+          setObsStatus("good", `connected (${host}:${port})`);
+          els.connect.textContent = "Disconnect";
+          this.refreshRecordStatus();
+        } else if (op === 7) { // RequestResponse
+          const p = this.pending.get(d.requestId);
+          if (p) {
+            this.pending.delete(d.requestId);
+            if (d.requestStatus && d.requestStatus.result) p.resolve(d.responseData || {});
+            else p.reject(new Error((d.requestStatus && d.requestStatus.comment) || "request failed"));
+          }
+        } else if (op === 5) { // Event
+          if (d.eventType === "RecordStateChanged") {
+            this.setRecording(!!d.eventData.outputActive);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        const wasConn = this.connected;
+        this.connected = false;
+        this.identified = false;
+        this.ws = null;
+        this.pending.forEach((p) => p.reject(new Error("connection closed")));
+        this.pending.clear();
+        els.connect.textContent = "Connect";
+        this.setRecording(false);
+        if (this.manualClose) {
+          setObsStatus("", "disconnected");
+        } else {
+          setObsStatus("bad", "disconnected — retrying…");
+          this.retry = setTimeout(() => this.connect(), 3000);
+        }
+      };
+
+      ws.onerror = () => { /* onclose handles state */ };
+    },
+
+    disconnect() {
+      this.manualClose = true;
+      clearTimeout(this.retry);
+      if (this.ws) this.ws.close();
+      else setObsStatus("", "disconnected");
+    },
+
+    request(requestType, requestData) {
+      return new Promise((resolve, reject) => {
+        if (!this.connected) { reject(new Error("not connected")); return; }
+        const requestId = "r" + (++this.reqId);
+        this.pending.set(requestId, { resolve, reject });
+        this.ws.send(JSON.stringify({ op: 6, d: { requestType, requestId, requestData: requestData || {} } }));
+        setTimeout(() => {
+          if (this.pending.has(requestId)) {
+            this.pending.delete(requestId);
+            reject(new Error("timeout"));
+          }
+        }, 5000);
+      });
+    },
+
+    async refreshRecordStatus() {
+      try {
+        const r = await this.request("GetRecordStatus");
+        this.setRecording(!!r.outputActive);
+      } catch {}
+    },
+
+    async ensureRecording() {
+      const r = await this.request("GetRecordStatus");
+      if (r.outputActive) { this.setRecording(true); return; } // already recording — reuse
+      await this.request("StartRecord");
+      this.setRecording(true);
+    },
+
+    async stopRecording() {
+      try {
+        const r = await this.request("GetRecordStatus");
+        if (r.outputActive) await this.request("StopRecord");
+      } catch {}
+      this.setRecording(false);
+    },
+
+    setRecording(on) {
+      this.recording = on;
+      els.recDot.className = "dot" + (on ? " good" : "");
+      els.recLabel.textContent = on ? "● Recording" : "Not recording";
+    },
+  };
+
+  function setObsStatus(kind, text) {
+    els.obsDot.className = "dot" + (kind ? " " + kind : "");
+    els.obsLabel.textContent = "OBS: " + text;
+  }
+
+  let flashTimer = null;
+  function flashStatus(text) {
+    els.obsLabel.textContent = text;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      setObsStatus(obs.connected ? "good" : "", obs.connected ? "connected" : "disconnected");
+    }, 3500);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wiring
+  // ---------------------------------------------------------------------------
+  els.editor.addEventListener("input", () => {
+    state.script = els.editor.value;
+    renderPrompter();
+    updateReadTime();
+    save();
+  });
+
+  function bindRange(el, key, fmt, apply) {
+    el.addEventListener("input", () => {
+      state[key] = key === "lineHeight" ? Number(el.value) : Number(el.value);
+      apply();
+      save();
+    });
+  }
+  bindRange(els.fontSize, "fontSize", null, () => {
+    root.setProperty("--prompter-font", state.fontSize + "px");
+    els.fontVal.textContent = state.fontSize + "px";
+  });
+  bindRange(els.speed, "speed", null, () => { els.speedVal.textContent = state.speed; });
+  bindRange(els.lineHeight, "lineHeight", null, () => {
+    root.setProperty("--prompter-line", state.lineHeight);
+    els.lineVal.textContent = Number(state.lineHeight).toFixed(2);
+  });
+  bindRange(els.opacity, "opacity", null, () => {
+    root.setProperty("--app-opacity", state.opacity / 100);
+    els.opacityVal.textContent = state.opacity + "%";
+  });
+
+  els.countdownLen.addEventListener("change", () => { state.countdownLen = Number(els.countdownLen.value); save(); });
+  els.guideToggle.addEventListener("change", () => {
+    state.guide = els.guideToggle.checked;
+    els.guide.classList.toggle("on", state.guide);
+    save();
+  });
+
+  els.obsHost.addEventListener("input", () => { state.obsHost = els.obsHost.value; save(); });
+  els.obsPort.addEventListener("input", () => { state.obsPort = Number(els.obsPort.value) || 4455; save(); });
+  els.obsPass.addEventListener("input", () => { state.obsPass = els.obsPass.value; save(); });
+  els.autoConnect.addEventListener("change", () => { state.autoConnect = els.autoConnect.checked; save(); });
+
+  els.connect.addEventListener("click", () => {
+    if (obs.connected || (obs.ws && obs.ws.readyState === WebSocket.CONNECTING)) obs.disconnect();
+    else obs.connect();
+  });
+
+  els.scriptToggle.addEventListener("click", () => {
+    state.editorOpen = !state.editorOpen;
+    els.editorPanel.classList.toggle("hidden", !state.editorOpen);
+    els.scriptToggle.classList.toggle("active", state.editorOpen);
+    if (state.editorOpen) els.editor.focus();
+    save();
+  });
+  els.settingsToggle.addEventListener("click", () => {
+    state.settingsOpen = !state.settingsOpen;
+    els.settings.classList.toggle("hidden", !state.settingsOpen);
+    els.settingsToggle.classList.toggle("active", state.settingsOpen);
+    save();
+  });
+
+  els.start.addEventListener("click", startSession);
+  els.pause.addEventListener("click", pauseResume);
+  els.stop.addEventListener("click", () => stopAll("stop button"));
+  els.reset.addEventListener("click", resetScroll);
+
+  // Keyboard shortcuts
+  document.addEventListener("keydown", (e) => {
+    const typing = document.activeElement === els.editor ||
+      (document.activeElement && ["INPUT", "SELECT"].includes(document.activeElement.tagName));
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); startSession(); return; }
+    if (typing) return; // don't hijack space/esc while editing fields
+    if (e.code === "Space") { e.preventDefault(); if (scroll.running) pauseResume(); else startSession(); }
+    else if (e.key === "Escape") { e.preventDefault(); stopAll("esc"); }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+  applyAll();
+  setObsStatus("", "disconnected");
+  obs.setRecording(false);
+  if (state.autoConnect) obs.connect();
+})();
+</script>
+</body>
+</html>
