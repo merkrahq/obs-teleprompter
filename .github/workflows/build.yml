@@ -105,8 +105,14 @@ jobs:
           Invoke-WebRequest "$base/windows-deps-qt6-$env:DEPS_DATE-x64.zip" -OutFile qt6.zip
           Expand-Archive deps.zip -DestinationPath "$PWD/obs-sdk" -Force
           Expand-Archive qt6.zip  -DestinationPath "$PWD/obs-sdk" -Force
+          # OBS 31 requires Windows SDK >= 10.0.20348; pin the newest one present
+          # on the runner (msvc-dev-cmd may default to an older target).
+          $winsdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory |
+                     Sort-Object Name -Descending | Select-Object -First 1).Name
+          Write-Host "Using Windows SDK $winsdk"
           cmake -S obs-studio -B obs-studio/build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_SYSTEM_VERSION="$winsdk" `
             -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" `
             -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON `
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
@@ -123,9 +129,10 @@ jobs:
           mkdir -p obs-sdk
           curl -sL "$base/macos-deps-${DEPS_DATE}-universal.tar.xz"     | tar -xJ -C obs-sdk
           curl -sL "$base/macos-deps-qt6-${DEPS_DATE}-universal.tar.xz" | tar -xJ -C obs-sdk
-          cmake -S obs-studio -B obs-studio/build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+          # OBS 31's CMake hard-requires the Xcode generator on macOS.
+          cmake -S obs-studio -B obs-studio/build -G Xcode \
             -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON \
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
           cmake --build obs-studio/build --config Release --target obs-frontend-api
