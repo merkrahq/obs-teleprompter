@@ -285,22 +285,34 @@ jobs:
             || { echo "FAIL: locale not at <top>/data/locale/ in the zip"; exit 1; }
           echo "OK: Windows .zip carries the OBS drop-in layout (bin/64bit + data/locale)"
 
+      # Upload the generated NSIS script so its exact contents can be inspected
+      # off-CI (the ground-truth check that pinned the v0.1.3 directory-page defect).
+      - name: Upload generated project.nsi
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-nsi
+          path: build/_CPack_Packages/**/project.nsi
+          if-no-files-found: error
+
       # The .exe is the REAL installer and the true install-location guard (00003.a).
-      # OBS scans exactly two Windows plugin dirs (GO-009): %ProgramData%\obs-studio\
-      # plugins (nested, PREFERRED) and <obs>\obs-plugins\64bit (flat, legacy). It
-      # does NOT scan %APPDATA%\obs-studio\plugins (Roaming) — v0.1.1/v0.1.2 targeted
-      # it and the dock never loaded (GO-008 backslash fix was necessary but the
-      # whole target was wrong). So the installer now DISCOVERS its target at install
-      # time in the PREINSTALL block of the generated project.nsi:
-      #   1. SetShellVarContext all → $APPDATA = C:\ProgramData; target
-      #      %ProgramData%\obs-studio\plugins\obs-teleprompter (nested). Chosen when
-      #      writable (writability is FileOpen-tested, no admin/UAC).
-      #   2. else ReadRegStr the OBS install dir (HKLM uninstall InstallLocation,
-      #      native + WOW6432Node) → flat <obs>\obs-plugins\64bit fallback.
-      # This is RUNTIME logic, so CI asserts the LOGIC is present (not a resolved
-      # path). Path resolution + OBS-actually-loads-it remain the operator live-load
-      # gate (the gap that missed v0.1.0/v0.1.1/v0.1.2).
-      - name: Assert Windows .exe discovers the OBS plugin dir (ProgramData → registry fallback)
+      # OBS scans exactly two Windows plugin dirs (GO-009): <obs>\obs-plugins\64bit
+      # (flat, legacy) and %ProgramData%\obs-studio\plugins (nested, PREFERRED). It
+      # does NOT scan %APPDATA%\obs-studio\plugins (Roaming).
+      #
+      # v0.1.0-v0.1.3 all shipped to C:\Users\...\Documents\obs-teleprompter because
+      # CPack's STOCK NSIS generator emits an MUI directory page + a .onInit that
+      # defaults $INSTDIR to $DOCUMENTS on a per-user install — that page-committed
+      # value won over our Section-level override. We now ship a CUSTOM NSIS template
+      # (src/cmake/NSIS.template.in) that REMOVES the directory page and DISCOVERS the
+      # target in .onInit, deterministically, before any page:
+      #   1. registry-discover <obs> (HKLM Uninstall\OBS Studio InstallLocation;
+      #      native, WOW6432Node, 32-bit views) → flat <obs>\obs-plugins\64bit.
+      #   2. else %ProgramData%\obs-studio\plugins\obs-teleprompter (nested).
+      # RequestExecutionLevel admin (one UAC prompt) so the system OBS tree is
+      # writable. This asserts the LOGIC is present; whether OBS actually LOADS the
+      # dock remains the operator live-load gate (the gap that missed v0.1.0-v0.1.3).
+      - name: Assert Windows .exe discovers the OBS plugin dir (registry → ProgramData)
         if: runner.os == 'Windows'
         shell: bash
         working-directory: build
@@ -309,37 +321,37 @@ jobs:
           echo "=== NSIS install script: $nsi ==="
           [ -n "$nsi" ] || { echo "FAIL: generated project.nsi not found"; exit 1; }
           echo "=== discovery-relevant lines ==="
-          grep -nE 'InstallDir|RequestExecutionLevel|SetShellVarContext|ReadRegStr|StrCpy \$INSTDIR|FileOpen|SetRegView' "$nsi" || true
-          # (1) PRIMARY target: SetShellVarContext all + $INSTDIR set to the
-          # %ProgramData%\obs-studio\plugins\obs-teleprompter NESTED path with clean
-          # BACKSLASHES (GO-008 — a forward/mixed slash is a regression). The path is
-          # written via $APPDATA under the all-users context (= C:\ProgramData).
-          grep -E 'SetShellVarContext[[:space:]]+all' "$nsi" \
-            || { echo "FAIL: PREINSTALL does not SetShellVarContext all (needed for \$APPDATA = C:\\ProgramData)"; exit 1; }
-          grep -E 'StrCpy \$INSTDIR[[:space:]]+"?\$APPDATA\\obs-studio\\plugins\\obs-teleprompter"?' "$nsi" \
-            || { echo "FAIL: PREINSTALL does not set \$INSTDIR to \$APPDATA\\obs-studio\\plugins\\obs-teleprompter with BACKSLASHES (GO-008)"; exit 1; }
-          # (2) The registry-discovery fallback must be present: read the OBS install
-          # location from the uninstall key (native + WOW6432Node views).
+          grep -nE 'InstallDir|RequestExecutionLevel|SetShellVarContext|ReadRegStr|StrCpy \$INSTDIR|SetRegView|MUI_PAGE_DIRECTORY|DOCUMENTS|ObsFlatRoot' "$nsi" || true
+          # (1) The directory-selection page MUST be gone — that page is the v0.1.0-
+          # v0.1.3 defect (its $INSTDIR overrode discovery → files in $DOCUMENTS).
+          ! grep -E 'insertmacro[[:space:]]+MUI_PAGE_DIRECTORY' "$nsi" \
+            || { echo "FAIL: MUI_PAGE_DIRECTORY still present — the directory page can override discovery (v0.1.3 defect)"; exit 1; }
+          # (2) No active $DOCUMENTS default. The stock .onInit did 'StrCpy $INSTDIR
+          # "$DOCUMENTS\..."'; our template removed it. (Comment lines mentioning
+          # $DOCUMENTS are fine; an actual StrCpy assignment is not.)
+          ! grep -E 'StrCpy[[:space:]]+\$INSTDIR[[:space:]]+"?\$DOCUMENTS' "$nsi" \
+            || { echo "FAIL: .onInit still assigns \$INSTDIR to \$DOCUMENTS (v0.1.3 defect)"; exit 1; }
+          # (3) Registry discovery present: OBS uninstall InstallLocation, native +
+          # WOW6432Node views (32-bit redirection covered by a SetRegView 32 too).
           grep -E 'ReadRegStr .* "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OBS Studio" "InstallLocation"' "$nsi" \
             || { echo "FAIL: no ReadRegStr of the OBS Studio uninstall InstallLocation (registry discovery missing)"; exit 1; }
           grep -E 'ReadRegStr .* "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OBS Studio" "InstallLocation"' "$nsi" \
             || { echo "FAIL: no WOW6432Node view of the OBS Studio uninstall key (32-bit registry redirection not handled)"; exit 1; }
-          # (3) Discovery must be WRITABILITY-GATED (FileOpen w test) so it never
-          # forces admin, and the flat OBS target must be referenced.
-          grep -E 'FileOpen \$9 .*obsprompt_wtest\.tmp. w' "$nsi" \
-            || { echo "FAIL: no writability test before choosing a target (would risk demanding admin)"; exit 1; }
           grep -E 'obs-plugins\\64bit' "$nsi" \
-            || { echo "FAIL: registry fallback does not target <obs>\\obs-plugins\\64bit"; exit 1; }
-          # (4) No forward/mixed slash anywhere in the target StrCpy lines (GO-008).
+            || { echo "FAIL: discovery does not target <obs>\\obs-plugins\\64bit"; exit 1; }
+          # (4) ProgramData nested fallback present, clean BACKSLASHES (GO-008).
+          grep -E 'StrCpy \$INSTDIR[[:space:]]+"?\$APPDATA\\obs-studio\\plugins\\obs-teleprompter"?' "$nsi" \
+            || { echo "FAIL: no %ProgramData% nested fallback (\$APPDATA under all-users context)"; exit 1; }
+          # (5) No forward/mixed slash in any $INSTDIR assignment (GO-008).
           ! grep -E 'StrCpy \$INSTDIR[[:space:]]+.*/' "$nsi" \
             || { echo "FAIL: a \$INSTDIR assignment contains a forward slash (mixed-slash path — GO-008)"; exit 1; }
-          # (5) Per-user (unelevated): never prompt UAC; fall back to the writable
-          # target instead. (GO-005: the install root is absolute, not $PROGRAMFILES.)
-          grep -E 'RequestExecutionLevel[[:space:]]+user' "$nsi" \
-            || { echo "FAIL: installer is not RequestExecutionLevel user (per-user, no UAC)"; exit 1; }
-          ! grep -E 'InstallDir[[:space:]]+"?\$PROGRAMFILES' "$nsi" \
-            || { echo "FAIL: InstallDir defaults to \$PROGRAMFILES (GO-005 regression)"; exit 1; }
-          # (6) And confirm the .exe actually embeds the OBS drop-in payload tree.
+          # (6) Elevated so the system OBS tree is writable (this box has no no-admin
+          # target). Must NOT be RequestExecutionLevel user.
+          grep -E 'RequestExecutionLevel[[:space:]]+admin' "$nsi" \
+            || { echo "FAIL: installer is not RequestExecutionLevel admin (cannot write a Program Files OBS tree)"; exit 1; }
+          ! grep -E 'RequestExecutionLevel[[:space:]]+user' "$nsi" \
+            || { echo "FAIL: RequestExecutionLevel user is still present (would fail to write Program Files)"; exit 1; }
+          # (7) Confirm the .exe actually embeds the OBS drop-in payload tree.
           exe=$(ls *.exe | head -n1)
           echo "=== $exe embedded payload (7z listing) ==="
           7z l "$exe" | tee exe-listing.txt
@@ -347,7 +359,7 @@ jobs:
             || { echo "FAIL: .dll not embedded at bin\\64bit\\ in the .exe"; exit 1; }
           grep -E 'data[\\/]locale[\\/]en-US\.ini' exe-listing.txt \
             || { echo "FAIL: locale not embedded at data\\locale\\ in the .exe"; exit 1; }
-          echo "OK: Windows .exe discovers %ProgramData% (nested) with a registry-based <obs>\\obs-plugins\\64bit fallback, writability-gated, per-user"
+          echo "OK: Windows .exe removes the directory page + discovers <obs>\\obs-plugins\\64bit (registry) with a %ProgramData% nested fallback, elevated"
 
       # ── Portable "drag-into-OBS" folder (no installer, no admin rights) ──────
       - name: Stage portable plugin folder

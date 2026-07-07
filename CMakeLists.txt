@@ -256,93 +256,36 @@ elseif(WIN32)
   set(CPACK_NSIS_DISPLAY_NAME "OBS Docked Teleprompter")
   set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
 
-  # ── Install target: %ProgramData% first, registry-discovered OBS tree fallback
-  #    (00003.a; operator decision 2026-07-07). ─────────────────────────────────
-  # The static InstallDir CPack bakes from CPACK_NSIS_INSTALL_ROOT \
-  # CPACK_PACKAGE_INSTALL_DIRECTORY is only a DEFAULT placeholder — the PREINSTALL
-  # block below OVERRIDES $INSTDIR at install time (InstallDir is evaluated before
-  # the Section's SetShellVarContext, so it can't itself resolve %ProgramData%;
-  # NSIS-forum-confirmed). We still set the default to the %ProgramData% path (via
-  # SetShellVarContext all → $APPDATA = C:\ProgramData) so a fresh checkout without
-  # the PREINSTALL logic degrades to the right place, and so the CI assert has a
-  # concrete backslash string to check. BACKSLASHES + CPACK_VERBATIM_VARIABLES
-  # keep GO-008 fixed (forward slashes leak as a mixed-slash path OBS won't scan).
+  # ── Install target: registry-discovered OBS tree, else %ProgramData% nested ──
+  #    (00003.a, re-opened 2026-07-07 after the operator live-load failed). ──────
+  # WHY A CUSTOM NSIS TEMPLATE (src/cmake/NSIS.template.in):
+  # CPack's stock NSIS generator ALWAYS emits an MUI directory-selection page and
+  # a .onInit that defaults $INSTDIR to $DOCUMENTS\<name> on a per-user install.
+  # That page runs BEFORE our Section-level PREINSTALL, so the user-visible /
+  # page-committed $INSTDIR won — v0.1.0-v0.1.3 all shipped the plugin to
+  # C:\Users\...\Documents\obs-teleprompter (confirmed on the operator's box), a
+  # dir OBS never scans, so the dock never loaded. No CPack variable suppresses
+  # that page. Our template removes the directory page + the $DOCUMENTS rewrite
+  # and DISCOVERS the target in .onInit, deterministically, before any page:
+  #   1. registry-discover <obs> (HKLM Uninstall\OBS Studio InstallLocation;
+  #      native 64-bit, WOW6432Node, and 32-bit views) → install FLAT into
+  #      <obs>\obs-plugins\64bit (+ data under <obs>\data\obs-plugins\<name>).
+  #      This is the location a system OBS always scans. (00003.b/c cover mac/Linux.)
+  #   2. else %ProgramData%\obs-studio\plugins\<name> (modern NESTED layout;
+  #      SetShellVarContext all → $APPDATA = C:\ProgramData).
+  # UAC: RequestExecutionLevel admin (the stock template default, no longer
+  # overridden to `user`). The operator's OBS is in Program Files and their box
+  # has no pre-existing C:\ProgramData\obs-studio, so a writable no-admin target
+  # does not exist — one UAC prompt is required to land the plugin where OBS
+  # actually scans. Decision `windows-installer-custom-nsis-template-uac`
+  # supersedes the "never UAC" clause of `dynamic-obs-install-path-discovery`.
+  # The discovery is LITERAL NSIS in the template (no CMake string-escaping),
+  # eliminating the CPackConfig re-parse escaping hazard entirely (GO-008 lineage).
   set(CPACK_NSIS_INSTALL_ROOT "$APPDATA\\obs-studio\\plugins")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME}")
-  set(CPACK_NSIS_DEFINES "RequestExecutionLevel user")
-
-  # PREINSTALL runs at the top of the install Section, BEFORE @CPACK_NSIS_FULL_INSTALL@
-  # copies the nested payload (bin\64bit + data\locale) into $INSTDIR. We use it to
-  # pick the real target:
-  #   1. %ProgramData%\obs-studio\plugins\obs-teleprompter  (NESTED — FULL_INSTALL's
-  #      layout is correct as-is). Chosen when writable (the common case: the
-  #      obs-studio subdir already exists once OBS has run, so a standard user can
-  #      write it — no admin/UAC).
-  #   2. else registry-discover <obs> (HKLM uninstall key InstallLocation, native +
-  #      WOW6432Node + 32-bit view) and if <obs>\obs-plugins\64bit exists + is
-  #      writable, stash it in $R0. FULL_INSTALL still drops the nested tree into the
-  #      ProgramData staging $INSTDIR; the POST block (EXTRA_INSTALL_COMMANDS) then
-  #      copies the two files FLAT into the OBS tree (that legacy dir wants
-  #      <name>.dll directly + data under <obs>\data\obs-plugins\<name>).
-  # Writability is TESTED (FileOpen w), never assumed — admin is never required and
-  # UAC is never prompted (RequestExecutionLevel user). GO-005: $INSTDIR is ABSOLUTE,
-  # so nothing re-inherits NSIS's default $PROGRAMFILES prefix.
-  # NSIS-escaping recipe (verified via a CPackConfig round-trip probe): use LITERAL
-  # newlines between commands, `\"` for quotes, `\\` for path backslashes, and a
-  # plain `$` for NSIS vars ($INSTDIR/$APPDATA/$0/$9/$R0). Under
-  # CPACK_VERBATIM_VARIABLES the `$` serializes to `\$` in CPackConfig.cmake and
-  # unescapes back to a clean `$` when cpack re-parses + substitutes into the .nsi.
-  # (The `$\r$\n` NSIS newline construct does NOT survive the CMake layer — CMake
-  # eats the `\r`/`\n`; literal newlines are the correct carrier.)
-  set(CPACK_NSIS_EXTRA_PREINSTALL_COMMANDS
-"SetShellVarContext all
-  StrCpy $INSTDIR \"$APPDATA\\obs-studio\\plugins\\obs-teleprompter\"
-  StrCpy $R0 \"\"
-  CreateDirectory \"$APPDATA\\obs-studio\\plugins\"
-  ClearErrors
-  FileOpen $9 \"$APPDATA\\obs-studio\\plugins\\obsprompt_wtest.tmp\" w
-  IfErrors obsprompt_try_reg
-  FileClose $9
-  Delete \"$APPDATA\\obs-studio\\plugins\\obsprompt_wtest.tmp\"
-  Goto obsprompt_target_done
-  obsprompt_try_reg:
-  SetRegView 64
-  ReadRegStr $0 HKLM \"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OBS Studio\" \"InstallLocation\"
-  StrCmp $0 \"\" 0 obsprompt_have_obs
-  ReadRegStr $0 HKLM \"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OBS Studio\" \"InstallLocation\"
-  StrCmp $0 \"\" 0 obsprompt_have_obs
-  SetRegView 32
-  ReadRegStr $0 HKLM \"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OBS Studio\" \"InstallLocation\"
-  StrCmp $0 \"\" obsprompt_target_done 0
-  obsprompt_have_obs:
-  IfFileExists \"$0\\obs-plugins\\64bit\\*.*\" 0 obsprompt_target_done
-  ClearErrors
-  FileOpen $9 \"$0\\obs-plugins\\64bit\\obsprompt_wtest.tmp\" w
-  IfErrors obsprompt_target_done
-  FileClose $9
-  Delete \"$0\\obs-plugins\\64bit\\obsprompt_wtest.tmp\"
-  StrCpy $R0 $0
-  StrCpy $INSTDIR \"$TEMP\\obs-teleprompter-stage\"
-  obsprompt_target_done:
-  SetOutPath \"$INSTDIR\"")
-
-  # POST-install: $R0 is non-empty ONLY when ProgramData was NOT writable but a
-  # writable OBS install tree WAS discovered (the rare legacy path). In that case
-  # PREINSTALL staged the nested payload into $TEMP\obs-teleprompter-stage; copy the
-  # two files FLAT into the OBS tree (that legacy dir wants <name>.dll directly +
-  # data under <obs>\data\obs-plugins\<name>), then wipe the temp stage so no cruft
-  # (or a stray temp uninstaller) is left behind. When ProgramData WAS writable, $R0
-  # is empty and this is a no-op — the nested ProgramData install stands.
-  set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-"StrCmp $R0 \"\" obsprompt_post_done 0
-  CreateDirectory \"$R0\\obs-plugins\\64bit\"
-  CopyFiles /SILENT \"$INSTDIR\\bin\\64bit\\obs-teleprompter.dll\" \"$R0\\obs-plugins\\64bit\"
-  CreateDirectory \"$R0\\data\\obs-plugins\\obs-teleprompter\\locale\"
-  CopyFiles /SILENT \"$INSTDIR\\data\\locale\\en-US.ini\" \"$R0\\data\\obs-plugins\\obs-teleprompter\\locale\"
-  RMDir /r \"$TEMP\\obs-teleprompter-stage\"
-  obsprompt_post_done:")
-  # Uninstaller runs in the all-users context so it resolves the same %ProgramData%
-  # $APPDATA paths the installer wrote to.
+  # Point CPack's NSIS generator at our template. CPack searches CMAKE_MODULE_PATH
+  # for a file named `NSIS.template.in` before falling back to its built-in one.
+  list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake")
   set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "SetShellVarContext all")
 else()
   set(CPACK_GENERATOR "DEB;TGZ")
