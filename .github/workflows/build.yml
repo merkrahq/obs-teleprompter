@@ -158,38 +158,40 @@ jobs:
             cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
           else
             # obs-sdk holds BOTH the OBS SDK (built from source) and the obs-deps
-            # Qt6. The config packages install to OS-specific — and, for the
-            # macOS framework, deeply-nested — locations:
-            #   Windows: obs-sdk/cmake/{libobs,obs-frontend-api}Config.cmake
-            #   macOS:   obs-sdk/Frameworks/libobs.framework/Versions/A/Resources/cmake/libobsConfig.cmake
-            #            obs-sdk/lib/cmake/obs-frontend-api/obs-frontend-apiConfig.cmake
-            # Passing these as one ';'-separated CMAKE_PREFIX_PATH is fragile:
-            #   - bash-on-Windows splits an unquoted ';' as a command separator;
-            #   - a CMAKE_PREFIX_PATH *environment* variable uses ':' on macOS,
-            #     so a ';'-joined value is read as a single bogus path (this
-            #     regressed macOS from Package back to Configure last round).
-            # Instead, locate each package's config file with `find` and hand
-            # CMake the exact directory via the per-package <pkg>_DIR hint — a
-            # single path, no list-separator ambiguity, no prefix-search
-            # heuristics. Qt6 is found the same way.
+            # Qt6, with OS-specific config-package layouts:
+            #   Windows: obs-sdk/cmake/{libobs,obs-frontend-api,w32-pthreads,...}Config.cmake
+            #            obs-sdk/lib/cmake/Qt6*/…
+            #   macOS:   libobs is a FRAMEWORK — its config lives inside it at
+            #              obs-sdk/Frameworks/libobs.framework/Versions/A/Resources/cmake/
+            #            obs-sdk/lib/cmake/obs-frontend-api/… and obs-sdk/lib/cmake/Qt6*/…
+            #
+            # Two hard-won lessons from prior rounds:
+            #  1. libobs's own config calls find_dependency(w32-pthreads) (Windows)
+            #     and pulls Qt6 (both) — so we MUST provide a real CMAKE_PREFIX_PATH
+            #     covering obs-sdk/cmake and obs-sdk/lib/cmake, not just a <pkg>_DIR
+            #     for libobs, or the *transitive* dependency fails to resolve.
+            #  2. On macOS, pointing libobs_DIR straight at the framework-internal
+            #     cmake dir breaks libobsTargets' _IMPORT_PREFIX math (it walks up
+            #     from the config dir and doubles the framework path →
+            #     .../libobs.framework/Frameworks/libobs.framework/…/libobs missing).
+            #     libobs must instead be found through the FRAMEWORK mechanism
+            #     (CMAKE_FRAMEWORK_PATH = obs-sdk/Frameworks), which sets the import
+            #     prefix correctly. So we do NOT set libobs_DIR on macOS.
+            #
+            # The ';' list is passed as a single quoted -D token (one argv word, so
+            # bash never splits it; CMake splits it internally on ';'). Print the
+            # tree so any path mismatch stays visible in the log.
             echo "=== obs-sdk config packages ==="
             find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) 2>/dev/null | sort
-            find_dir() {  # find_dir <config-filename> -> dir containing it (first match)
-              local f
-              f=$(find "$PWD/obs-sdk" -name "$1" -print 2>/dev/null | head -n1)
-              [ -n "$f" ] && dirname "$f"
-            }
-            LIBOBS_DIR=$(find_dir 'libobsConfig.cmake')
-            FRONTEND_DIR=$(find_dir 'obs-frontend-apiConfig.cmake')
-            QT6_DIR=$(find_dir 'Qt6Config.cmake')
-            echo "libobs_DIR=$LIBOBS_DIR"
-            echo "obs-frontend-api_DIR=$FRONTEND_DIR"
-            echo "Qt6_DIR=$QT6_DIR"
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -Dlibobs_DIR="$LIBOBS_DIR" \
-              -Dobs-frontend-api_DIR="$FRONTEND_DIR" \
-              -DQt6_DIR="$QT6_DIR" \
-              -DCMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks"
+            PREFIX="$PWD/obs-sdk;$PWD/obs-sdk/cmake;$PWD/obs-sdk/lib/cmake"
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_PREFIX_PATH="$PREFIX" \
+                -DCMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks"
+            else
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_PREFIX_PATH="$PREFIX"
+            fi
           fi
 
       - name: Build
