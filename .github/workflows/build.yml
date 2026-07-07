@@ -89,6 +89,14 @@ jobs:
           # CMAKE_SYSTEM_VERSION, so it must be selected here.
           sdk: '10.0.26100.0'
 
+      # CPack's NSIS generator needs the `makensis` compiler, which is NOT
+      # preinstalled on the windows runner. Install it via Chocolatey so the
+      # Package step can build the .exe installer.
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis --no-progress -y
+        shell: pwsh
+
       - name: Fetch obs-studio source (Windows/macOS)
         if: runner.os != 'Linux'
         uses: actions/checkout@v4
