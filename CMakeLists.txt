@@ -33,6 +33,22 @@ target_sources(
 find_package(libobs REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE OBS::libobs)
 
+# macOS: OBS's imported libobs target drags in the legacy `AGL` framework via its
+# interface link libraries, but AGL was removed from modern macOS SDKs
+# (`ld: framework 'AGL' not found`). We don't use AGL — strip it from the
+# imported target's interface so the plugin links against the current SDK.
+if(APPLE)
+  foreach(_obs_tgt OBS::libobs libobs)
+    if(TARGET ${_obs_tgt})
+      get_target_property(_obs_ill ${_obs_tgt} INTERFACE_LINK_LIBRARIES)
+      if(_obs_ill)
+        list(FILTER _obs_ill EXCLUDE REGEX "(^|/|-)AGL($|\\.framework)")
+        set_target_properties(${_obs_tgt} PROPERTIES INTERFACE_LINK_LIBRARIES "${_obs_ill}")
+      endif()
+    endif()
+  endforeach()
+endif()
+
 # ── OBS frontend API (dock registration, recording control) ──────────────────
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)

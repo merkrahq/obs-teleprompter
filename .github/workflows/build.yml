@@ -114,8 +114,13 @@ jobs:
           $winsdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory |
                      Sort-Object Name -Descending | Select-Object -First 1).Name
           Write-Host "Using Windows SDK $winsdk"
-          cmake -S obs-studio -B obs-studio/build -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
+          # OBS 31's Windows CMake reads CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION,
+          # which ONLY the Visual Studio generator populates (Ninja leaves it
+          # empty → the SDK-version check fatals). Use the default generator so
+          # CMake auto-selects the newest installed VS, and pin the platform
+          # version + x64.
+          cmake -S obs-studio -B obs-studio/build -A x64 `
+            -DCMAKE_SYSTEM_VERSION="$winsdk" `
             -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" `
             -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON `
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
