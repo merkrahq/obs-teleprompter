@@ -1,65 +1,101 @@
 # OBS Docked Teleprompter
 
-A free, single-file teleprompter that lives **inside OBS Studio** as a custom browser dock.
-Paste a script, press **Start** — a countdown runs, OBS starts recording automatically, and the
-script scrolls smoothly. Press **Stop** and it halts both the scroll and the recording together.
+A free, native **OBS Studio plugin** that adds a teleprompter dock right inside OBS.
+Install it once, launch OBS, and the **Teleprompter** dock is already there — no Custom
+Browser Dock setup, no `file://` URL, no WebSocket host/port/password to configure.
 
-No install, no build step, no accounts, no cloud. One HTML file. Everything is stored locally in
-your browser.
+Paste a script, press **Start** — a countdown runs, OBS starts recording automatically, and
+the script scrolls smoothly. Press **Stop** and it halts both the scroll and the recording
+together. Everything is local; nothing is sent anywhere.
 
 ---
 
 ## Features
 
 - 🎬 **Countdown → auto-record → auto-scroll.** Start runs a configurable countdown (0/3/5/10s),
-  then tells OBS to start recording and begins scrolling the instant recording is confirmed.
-- 🔌 **Native OBS control** via OBS WebSocket v5 — connection status, and it detects if OBS is
-  already recording (and reuses that session instead of double-starting).
+  then OBS starts recording and the script begins scrolling the instant recording is confirmed.
+- 🔌 **In-process OBS control.** Recording is driven directly through the OBS frontend API — no
+  WebSocket, no connection to configure. It detects when OBS is already recording and reuses that
+  session instead of double-starting, and it never starts scrolling on an unconfirmed recording.
 - ✍️ **Paste-and-go script editor** with automatic local save/restore. Handles long scripts.
 - 🎛️ **Live adjustable** font size, scroll speed, and line height. Smooth (sub-pixel) scrolling.
 - ⏱️ Estimated reading time and word count.
 - 🌙 Dark, high-contrast theme with an optional **center guide line**.
-- 🎚️ Optional **dock opacity** control (dim the dock).
 - ⌨️ Keyboard shortcuts: **Ctrl+Enter** = Start, **Space** = Pause/Resume, **Esc** = Stop.
-- 💾 Everything persists locally (script, font, speed, line height, countdown, OBS host/port/password).
+- 💾 Everything persists locally across OBS restarts (script, font, speed, line height, countdown,
+  layout) — in the plugin's config dir, no cloud, no accounts.
 
 ## Requirements
 
-- **OBS Studio 28 or newer** (ships with OBS WebSocket v5 built in).
-- OBS WebSocket enabled: **Tools → WebSocket Server Settings → Enable WebSocket server**
-  (note the port — default `4455` — and password if you set one).
+- **OBS Studio 28 or newer** (Qt6 build). That's it — the teleprompter is a native dock once
+  installed.
 
-## Install (as an OBS Custom Browser Dock)
+## Install
 
-1. Download `index.html` from this repo (or clone it).
-2. In OBS: **Docks → Custom Browser Docks…**
-3. Give it a name (e.g. `Teleprompter`) and set the **URL** to the local file, e.g.
-   `file:///home/you/obs-teleprompter/index.html` (Windows: `file:///C:/path/to/index.html`).
-4. Click **Apply**. The teleprompter appears as a dock — drag it into the OBS dock grid next to
-   your other docks, or float it. It behaves like any other OBS dock.
+Download the installer for your OS from the [**Releases**](https://github.com/merkrahq/obs-teleprompter/releases)
+page and run it. After installing, (re)launch OBS Studio — the **Teleprompter** dock appears
+automatically under the **Docks** menu.
 
-> Tip: if `file://` gives you trouble, serve the folder from any static web server
-> (`python3 -m http.server`) and point the dock at `http://localhost:8000/index.html`.
+| OS | File | Install |
+|---|---|---|
+| **Linux** | `obs-teleprompter-*-Linux.deb` | `sudo dpkg -i obs-teleprompter-*-Linux.deb` (or `sudo apt install ./obs-teleprompter-*-Linux.deb` to pull deps). A `.tar.gz` is also provided — extract it over `/usr`. |
+| **Windows** | `obs-teleprompter-*-win64.exe` | Run the installer. |
+| **macOS** | `obs-teleprompter-*-macOS.pkg` | Open the `.pkg` and follow the installer. |
+
+### ⚠️ Unsigned installers — one-time OS override
+
+These installers are currently **unsigned** (code-signing certificates aren't held yet), so your
+OS may warn you the first time:
+
+- **Windows / SmartScreen:** if you see "Windows protected your PC," click **More info → Run
+  anyway**.
+- **macOS / Gatekeeper:** if the `.pkg` is blocked, **right-click it → Open** (instead of
+  double-clicking), or clear the quarantine flag:
+  `xattr -dr com.apple.quarantine obs-teleprompter-*-macOS.pkg`.
+
+Linux `.deb`/`.tar.gz` need no such override. Signing/notarization will be added once certs are
+in place; until then these steps are expected and safe for artifacts you downloaded from the
+official Releases page.
 
 ## Use
 
-1. Open the **⚙ Settings** panel and enter your OBS host/port/password, then **Connect**
-   (or tick **Auto** to connect on load). The status bar turns green when connected.
-2. Open **✎ Script**, paste your script.
+1. Open the **Teleprompter** dock (Docks → Teleprompter if it isn't already visible).
+2. Open **✎ Script** and paste your script.
 3. Adjust font size / scroll speed / line height / countdown to taste.
 4. Press **▶ Start** (or Ctrl+Enter). Countdown → OBS records → the script scrolls.
 5. **Space** pauses/resumes; **⏹ Stop** (or Esc) stops scrolling *and* recording.
 
-## Notes on the "transparent floating dock"
+If OBS is already recording when you press Start, the teleprompter reuses that recording rather
+than starting a second one.
 
-You can dim the dock with the **Dock opacity** slider. True *see-through-to-desktop* window
-transparency is not something a browser dock can control — OBS renders docks on an opaque widget —
-so this dims the dock's content rather than making the window itself transparent.
+## Building from source
+
+See [`BUILD.md`](./BUILD.md). In short (Linux):
+
+```sh
+sudo apt-get install -y cmake ninja-build build-essential \
+  obs-studio libobs-dev qt6-base-dev qt6-base-private-dev
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build
+cd build && cpack               # → obs-teleprompter-*-Linux.deb + .tar.gz
+```
+
+The per-OS installers are produced in CI by
+[`.github/workflows/build.yml`](./.github/workflows/build.yml) (Linux `.deb`/`.tar.gz`, Windows
+NSIS `.exe`, macOS `.pkg`) and published to Releases on a version tag.
 
 ## Privacy
 
-Fully local. No accounts, no telemetry, no network calls except the OBS WebSocket connection you
-configure. Settings live only in your browser's `localStorage`.
+Fully local. No accounts, no telemetry, no cloud. The plugin controls OBS in-process (no network
+connection at all) and stores its settings in OBS's local plugin config directory.
+
+## Reference / fallback: the single-file browser dock
+
+The repo also contains [`index.html`](./index.html) — the original single-file browser-dock
+version that controls OBS over **OBS WebSocket v5**. The native plugin above is the primary,
+recommended way to use the teleprompter; `index.html` is retained as a zero-install reference and
+fallback (e.g. for an OBS build without the plugin). It works as a **Docks → Custom Browser
+Docks…** entry pointed at the local file.
 
 ## License
 

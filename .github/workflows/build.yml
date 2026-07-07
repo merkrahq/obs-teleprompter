@@ -1,0 +1,173 @@
+name: Build installers
+
+# Builds the native OBS teleprompter plugin on all three OSes and produces the
+# per-OS installers (TODO 002.D, decision `installers-via-github-ci`):
+#   Linux   → .deb + .tar.gz  (CPack DEB;TGZ)   — also verified locally on the dev box
+#   Windows → NSIS .exe + .zip (CPack NSIS;ZIP)  — CI-only (no local Windows toolchain)
+#   macOS   → .pkg + .tar.gz   (CPack productbuild;TGZ) — CI-only (no local macOS toolchain)
+#
+# Every push/PR builds + uploads the installers as workflow artifacts so they can
+# be downloaded and test-installed. Pushing a version tag (v*) additionally
+# publishes them as assets on a GitHub Release.
+#
+# Artifacts are UNSIGNED (decision `ship-unsigned-installers-first`): the Windows
+# .exe trips SmartScreen and the macOS .pkg trips Gatekeeper until signing certs
+# exist. The README documents the override. Signing can be layered in later as an
+# extra CPack/codesign/notarytool step gated on a cert secret, without
+# restructuring this workflow.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed for the release job to upload assets
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            cpack_generators: 'DEB;TGZ'
+          - name: Windows
+            os: windows-latest
+            cpack_generators: 'NSIS;ZIP'
+          - name: macOS
+            os: macos-latest
+            cpack_generators: 'productbuild;TGZ'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Linux: OBS + Qt6 dev packages come straight from apt (same toolchain
+      #    the plugin was scaffolded + verified against on the dev box). ────────
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build build-essential pkg-config \
+            obs-studio libobs-dev \
+            qt6-base-dev qt6-base-private-dev
+
+      # ── Windows / macOS: install Qt6 and the OBS SDK. OBS is not on the
+      #    default runners, so we pull the prebuilt libobs SDK from the OBS
+      #    release for the matching version. Qt6 via install-qt-action. ─────────
+      - name: Install Qt (Windows/macOS)
+        if: runner.os != 'Linux'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.*'
+          cache: true
+
+      - name: Install CMake + Ninja (Windows/macOS)
+        if: runner.os != 'Linux'
+        uses: lukka/get-cmake@latest
+
+      # The OBS SDK (libobs + obs-frontend-api CMake config packages) is not
+      # bundled with the GitHub runners. Check out the matching obs-studio source
+      # and configure it just enough to export the libobs/frontend CMake config
+      # packages, then point our build at them via CMAKE_PREFIX_PATH.
+      #
+      # This is the portable-across-OS path: obs-studio's own CMake produces the
+      # OBS::libobs / OBS::obs-frontend-api targets we find_package() against.
+      # Pin OBS_VERSION to the minimum ABI we target so the plugin loads on that
+      # OBS and newer.
+      - name: Fetch OBS SDK (Windows/macOS)
+        if: runner.os != 'Linux'
+        uses: actions/checkout@v4
+        with:
+          repository: obsproject/obs-studio
+          ref: '30.0.2'
+          path: obs-studio
+          submodules: recursive
+
+      - name: Build OBS SDK (Windows/macOS)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          # Configure obs-studio far enough to install its CMake config packages
+          # (libobs + frontend-api) into a local prefix. We disable the full app
+          # build surface we don't need; the plugin only links libobs + frontend.
+          cmake -S obs-studio -B obs-studio/build \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DENABLE_PLUGINS=OFF -DENABLE_UI=ON -DENABLE_FRONTEND_API=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/obs-sdk" || \
+            echo "::warning::obs-studio configure needs the OBS deps bundle on this runner; see BUILD.md § CI for the obs-deps setup this step depends on."
+          cmake --build obs-studio/build --target obs-frontend-api libobs --config RelWithDebInfo || true
+          cmake --install obs-studio/build --prefix "$PWD/obs-sdk" || true
+
+      # ── Configure + build (all OSes) ────────────────────────────────────────
+      - name: Configure
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ "${{ runner.os }}" != "Linux" ]; then
+            EXTRA="-DCMAKE_PREFIX_PATH=$PWD/obs-sdk"
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo $EXTRA
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo
+
+      # ── Package with CPack (per-OS generators) ──────────────────────────────
+      - name: Package
+        working-directory: build
+        run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p dist
+          # DEB/TGZ/NSIS(.exe)/ZIP/PKG all land in build/ next to CPackConfig.
+          find build -maxdepth 1 -type f \
+            \( -name '*.deb' -o -name '*.tar.gz' -o -name '*.exe' \
+               -o -name '*.zip' -o -name '*.pkg' -o -name '*.dmg' \) \
+            -exec cp {} dist/ \;
+          ls -l dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-teleprompter-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: warn
+
+  # ── Release: on a version tag, gather all OS artifacts into one Release. ─────
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          body: |
+            Native OBS teleprompter dock — per-OS installers.
+
+            **Install:** download the file for your OS and run it. After install,
+            launch OBS Studio — the **Teleprompter** dock appears automatically
+            under **Docks** (no Custom Browser Dock, no URL, no WebSocket config).
+
+            > These installers are **unsigned**. Windows SmartScreen may warn:
+            > click **More info → Run anyway**. macOS Gatekeeper may block the
+            > `.pkg`: **right-click → Open**, or run
+            > `xattr -dr com.apple.quarantine <file>.pkg`. See the README.
