@@ -222,6 +222,22 @@ jobs:
         working-directory: build
         run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
 
+      # TEMP diagnostic (macOS): the productbuild .pkg is coming out empty. Dump
+      # what `cmake --install` produced and what CPack staged, plus the TGZ (same
+      # install tree) so we can see whether install() or productbuild is at fault.
+      - name: DIAG macOS install/staging tree
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: build
+        run: |
+          echo "=== install_manifest.txt ==="; cat install_manifest.txt 2>/dev/null || echo "(none)"
+          echo "=== TGZ contents (identical install tree to the .pkg) ==="
+          tgz=$(ls *.tar.gz | head -n1); echo "$tgz"; tar tzf "$tgz" 2>/dev/null || echo "(empty/none)"
+          echo "=== full _CPack_Packages tree ==="; find _CPack_Packages | sort
+          echo "=== fresh DESTDIR install to inspect what install() emits ==="
+          rm -rf /tmp/ddir && DESTDIR=/tmp/ddir cmake --install . --config RelWithDebInfo 2>&1 | tail -20 || true
+          find /tmp/ddir 2>/dev/null | sort
+
       # ── Assert installer PAYLOAD LOCATION (catches the GO-005 defect class) ───
       # CI builds+packages but never installs+launches OBS, so a green Package
       # step does NOT prove the files land where OBS scans. These checks expand
