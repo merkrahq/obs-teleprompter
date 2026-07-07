@@ -207,6 +207,14 @@ if(APPLE)
   set(CPACK_PRODUCTBUILD_DOMAINS ON)
   set(CPACK_PRODUCTBUILD_DOMAINS_USER ON)
   set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)
+  # CRITICAL: without a declared component, CPack's productbuild generator runs
+  # in component mode with an EMPTY component set and emits a ~2 KB distribution
+  # whose <choices-outline/> is empty and whose Contents/Packages/<name> payload
+  # is empty — i.e. a .pkg that installs NOTHING (no obs-teleprompter.plugin at
+  # all). The DEB/NSIS generators tolerate the default "unspecified" component;
+  # productbuild does not. Force a single-package (non-component) install so the
+  # whole install tree is packaged into one component with a real payload.
+  set(CPACK_MONOLITHIC_INSTALL ON)
 elseif(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-windows-${_arch}")

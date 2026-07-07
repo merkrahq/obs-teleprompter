@@ -235,50 +235,30 @@ jobs:
         working-directory: build
         run: |
           pkg=$(ls *.pkg | head -n1)
-          echo "############ DIAGNOSTIC DUMP for $pkg ############"
-          echo "=== ls -l build ==="; ls -l
-          echo "=== file $pkg ==="; file "$pkg"
-          echo "=== xar -tf (table of contents, verbatim member names) ==="
-          xar -tf "$pkg" || echo "(xar -tf failed)"
-          echo "=== pkgutil --payload-files ==="
-          pkgutil --payload-files "$pkg" 2>&1 | head -80 || true
-          echo "=== installer -query / pkgutil --check-signature ==="
-          pkgutil --check-signature "$pkg" 2>&1 | head -5 || true
-          echo "=== Distribution XML ==="
-          mkdir -p pkg-xar && xar -xf "$pkg" -C pkg-xar || true
-          cat pkg-xar/Distribution 2>/dev/null || echo "(no Distribution)"
-          echo "=== CPack productbuild STAGING tree (pre-archive component) ==="
-          stage=$(find _CPack_Packages -type d -path '*Contents/Packages/*' 2>/dev/null | head -n1)
-          echo "component staging pkg dir: $stage"
-          find _CPack_Packages -path '*Contents/Packages*' 2>/dev/null | sort | head -60
-          echo "=== any obs-teleprompter.plugin Mach-O anywhere under _CPack_Packages ==="
-          find _CPack_Packages -path '*obs-teleprompter.plugin/Contents/MacOS/obs-teleprompter' 2>/dev/null
-          echo "############ END DIAGNOSTIC DUMP ############"
-          # --- Assert against the productbuild TOC (xar -tf lists the true archived
-          #     members, including the nested component .pkg/Payload, which -x may
-          #     not have flattened onto disk). Extract the component Payload cpio
-          #     from the TOC path and enumerate its install paths. ---
-          comp=$(xar -tf "$pkg" | grep -E '\.pkg/Payload$' | head -n1)
-          echo "component Payload member: ${comp:-<none>}"
-          if [ -n "$comp" ]; then
-            xar -xf "$pkg" -C pkg-xar "$comp" || true
-            for dec in 'gzip -dc' 'xz -dc' 'cat'; do
-              paths=$($dec < "pkg-xar/$comp" 2>/dev/null | cpio -it 2>/dev/null) && [ -n "$paths" ] && break
-            done
-          fi
-          # Fall back to pkgutil --payload-files (reads the shipped .pkg directly).
-          [ -n "${paths:-}" ] || paths=$(pkgutil --payload-files "$pkg" 2>/dev/null)
-          echo "=== resolved payload paths ==="
+          echo "=== $pkg ($(du -h "$pkg" | cut -f1)) ==="
+          # `pkgutil --payload-files` reads the SHIPPED .pkg directly and lists
+          # every archived install path — the canonical way to inspect a product
+          # archive's payload (no manual xar/cpio plumbing). A real payload here
+          # also proves the CPACK_MONOLITHIC_INSTALL fix worked: before it, the
+          # productbuild component was empty and this listed nothing.
+          paths=$(pkgutil --payload-files "$pkg" 2>/dev/null)
+          echo "=== .pkg payload files ==="
           echo "${paths:-<empty>}"
-          [ -n "${paths:-}" ] || { echo "FAIL: could not enumerate any .pkg payload files"; exit 1; }
+          [ -n "$paths" ] || { echo "FAIL: .pkg payload is EMPTY (installs nothing — check CPACK_MONOLITHIC_INSTALL / install() rules)"; exit 1; }
+          # productbuild archives the install paths RELATIVE to the component's
+          # install-location, so the bundle appears at the payload root as
+          # obs-teleprompter.plugin/Contents/... — match anywhere in the path.
           echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
             || { echo "FAIL: .plugin Mach-O not in the .pkg payload"; exit 1; }
           echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
             || { echo "FAIL: locale not inside the .plugin bundle"; exit 1; }
+          # WHERE the bundle lands (the GO-005 defect class) = the component's
+          # install-location prefix in PackageInfo. Extract it with xar and assert
+          # it is the OBS plugins dir, not '/' or an arbitrary prefix.
+          mkdir -p pkg-xar && xar -xf "$pkg" -C pkg-xar
           echo "=== PackageInfo install-location(s) ==="
-          xar -xf "$pkg" -C pkg-xar 2>/dev/null || true
-          find pkg-xar _CPack_Packages -name PackageInfo -exec cat {} \; 2>/dev/null | grep -o 'install-location="[^"]*"' || true
-          find pkg-xar _CPack_Packages -name PackageInfo -exec cat {} \; 2>/dev/null | grep -o 'install-location="[^"]*"' \
+          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' || true
+          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' \
             | grep -E 'install-location="/?Library/Application Support/obs-studio/plugins/?"' \
             || { echo "FAIL: component install-location is not the OBS plugins dir"; exit 1; }
           echo "OK: macOS .pkg installs the plugin bundle into the OBS plugin dir"
