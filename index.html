@@ -520,6 +520,14 @@
         flashStatus("Could not start OBS recording: " + e.message + " — scrolling anyway.");
       }
     }
+    // A Stop pressed while ensureRecording() was in flight sets starting=false.
+    // If that happened, do NOT begin scrolling; make sure recording is stopped too
+    // (StartRecord may have won the race after stopAll's status check).
+    if (!starting) {
+      if (obs.connected) { try { await obs.stopRecording(); } catch {} }
+      setControls("idle");
+      return;
+    }
     starting = false;
     beginScroll();
   }
