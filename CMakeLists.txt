@@ -221,7 +221,11 @@ elseif(WIN32)
   # OBS scans for user plugins.) The ZIP generator uses the same
   # CPACK_PACKAGE_INSTALL_DIRECTORY, so the .zip contains a ready
   # `obs-teleprompter/bin/64bit`+`data` drop-in tree too.
-  set(CPACK_NSIS_INSTALL_ROOT "$APPDATA\\obs-studio\\plugins")
+  # Use FORWARD slashes (NSIS accepts them): with backslashes, CPack
+  # re-serializes the value into build/CPackConfig.cmake as "$APPDATA\obs-studio
+  # \plugins", where `\o`/`\p` are invalid CMake escapes and fatal the re-parse
+  # ("Syntax error in cmake code"). Forward slashes avoid the escaping entirely.
+  set(CPACK_NSIS_INSTALL_ROOT "$APPDATA/obs-studio/plugins")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME}")
   # Per-user install: run unelevated (no UAC), resolve $APPDATA/shortcuts for the
   # current user, and write the uninstall entry under HKCU (SetShellVarContext

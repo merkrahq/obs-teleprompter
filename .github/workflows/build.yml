@@ -222,6 +222,50 @@ jobs:
         working-directory: build
         run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
 
+      # ── Assert installer PAYLOAD LOCATION (catches the GO-005 defect class) ───
+      # CI builds+packages but never installs+launches OBS, so a green Package
+      # step does NOT prove the files land where OBS scans. These checks expand
+      # each installer and assert the payload paths, failing CI on a wrong
+      # install location (e.g. Program Files instead of the OBS plugin tree).
+      # This is our ONLY automated guard for macOS (no Mac to install on) and a
+      # cheap regression guard for Windows.
+      - name: Assert macOS .pkg payload lands in the OBS plugin dir
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: build
+        run: |
+          pkg=$(ls *.pkg | head -n1)
+          echo "Expanding $pkg"
+          pkgutil --expand "$pkg" pkg-expanded
+          # The productbuild payload is a gzip'd cpio (Payload) inside the
+          # component .pkg. List every archived path across all components.
+          paths=$(find pkg-expanded -name Payload -exec sh -c \
+            'cat "$1" | gunzip -dc | cpio -it 2>/dev/null' _ {} \;)
+          echo "=== .pkg payload paths ==="
+          echo "$paths"
+          # Must install the .plugin bundle's Mach-O under the OBS plugins prefix
+          # (Library/Application Support/obs-studio/plugins). productbuild strips
+          # the leading slash in the archived cpio paths, so match without it.
+          echo "$paths" | grep -E '(^|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
+            || { echo "FAIL: .plugin Mach-O not under the OBS plugins prefix"; exit 1; }
+          echo "$paths" | grep -E 'obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
+            || { echo "FAIL: locale not inside the .plugin bundle"; exit 1; }
+          echo "OK: macOS .pkg installs the plugin bundle into the OBS plugin dir"
+
+      - name: Assert Windows .zip has the OBS drop-in layout
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: build
+        run: |
+          zip=$(ls *.zip | grep -v portable | head -n1)
+          echo "=== $zip contents ==="
+          unzip -l "$zip"
+          unzip -l "$zip" | grep -E 'obs-teleprompter/bin/64bit/obs-teleprompter\.dll' \
+            || { echo "FAIL: .dll not at obs-teleprompter/bin/64bit/ in the zip"; exit 1; }
+          unzip -l "$zip" | grep -E 'obs-teleprompter/data/locale/en-US\.ini' \
+            || { echo "FAIL: locale not at obs-teleprompter/data/locale/ in the zip"; exit 1; }
+          echo "OK: Windows .zip carries the OBS per-user drop-in tree"
+
       # ── Portable "drag-into-OBS" folder (no installer, no admin rights) ──────
       - name: Stage portable plugin folder
         run: cmake --build build --config RelWithDebInfo --target portable
