@@ -157,23 +157,39 @@ jobs:
           if [ "${{ runner.os }}" = "Linux" ]; then
             cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
           else
-            # obs-sdk holds BOTH the OBS SDK (from source) and the obs-deps Qt6.
-            # The libobs / obs-frontend-api config packages install to
-            # obs-sdk/cmake/ (confirmed in-log), and Qt6 to obs-sdk/lib/cmake/.
-            # We must hand find_package a MULTI-PATH prefix, but a ';'-separated
-            # value passed via `-DCMAKE_PREFIX_PATH="a;b;c"` does NOT survive
-            # bash-on-Windows — CMake receives only the first path, so
-            # find_package(libobs) fails at Configure. Export the list through the
-            # ENVIRONMENT instead (CMake reads CMAKE_PREFIX_PATH /
-            # CMAKE_FRAMEWORK_PATH from env verbatim), which sidesteps shell
-            # splitting entirely. Print the tree so any path mismatch stays
-            # visible in the log.
+            # obs-sdk holds BOTH the OBS SDK (built from source) and the obs-deps
+            # Qt6. The config packages install to OS-specific — and, for the
+            # macOS framework, deeply-nested — locations:
+            #   Windows: obs-sdk/cmake/{libobs,obs-frontend-api}Config.cmake
+            #   macOS:   obs-sdk/Frameworks/libobs.framework/Versions/A/Resources/cmake/libobsConfig.cmake
+            #            obs-sdk/lib/cmake/obs-frontend-api/obs-frontend-apiConfig.cmake
+            # Passing these as one ';'-separated CMAKE_PREFIX_PATH is fragile:
+            #   - bash-on-Windows splits an unquoted ';' as a command separator;
+            #   - a CMAKE_PREFIX_PATH *environment* variable uses ':' on macOS,
+            #     so a ';'-joined value is read as a single bogus path (this
+            #     regressed macOS from Package back to Configure last round).
+            # Instead, locate each package's config file with `find` and hand
+            # CMake the exact directory via the per-package <pkg>_DIR hint — a
+            # single path, no list-separator ambiguity, no prefix-search
+            # heuristics. Qt6 is found the same way.
             echo "=== obs-sdk config packages ==="
-            find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) \
-              \( -iname 'libobs*' -o -iname 'obs-frontend*' \) 2>/dev/null || true
-            export CMAKE_PREFIX_PATH="$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake;$PWD/obs-sdk/cmake"
-            export CMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            find "$PWD/obs-sdk" \( -name '*Config.cmake' -o -name '*-config.cmake' \) 2>/dev/null | sort
+            find_dir() {  # find_dir <config-filename> -> dir containing it (first match)
+              local f
+              f=$(find "$PWD/obs-sdk" -name "$1" -print 2>/dev/null | head -n1)
+              [ -n "$f" ] && dirname "$f"
+            }
+            LIBOBS_DIR=$(find_dir 'libobsConfig.cmake')
+            FRONTEND_DIR=$(find_dir 'obs-frontend-apiConfig.cmake')
+            QT6_DIR=$(find_dir 'Qt6Config.cmake')
+            echo "libobs_DIR=$LIBOBS_DIR"
+            echo "obs-frontend-api_DIR=$FRONTEND_DIR"
+            echo "Qt6_DIR=$QT6_DIR"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -Dlibobs_DIR="$LIBOBS_DIR" \
+              -Dobs-frontend-api_DIR="$FRONTEND_DIR" \
+              -DQt6_DIR="$QT6_DIR" \
+              -DCMAKE_FRAMEWORK_PATH="$PWD/obs-sdk/Frameworks"
           fi
 
       - name: Build
