@@ -307,6 +307,19 @@ void TeleprompterDock::buildUi()
 	root->setContentsMargins(0, 0, 0, 0);
 	root->setSpacing(0);
 
+	// ── prompter stage (+ countdown overlay) ──
+	// The stage lives at the TOP of the dock (TODO 00004): the reading text
+	// wants to sit nearest a camera mounted above the screen, so everything
+	// else (controls, settings, editor, status) is placed below it.
+	m_stage = new PrompterStage();
+	m_stage->setMinimumHeight(160);
+	m_countdownOverlay = new QLabel(m_stage);
+	m_countdownOverlay->setAlignment(Qt::AlignCenter);
+	m_countdownOverlay->setObjectName("countdown");
+	m_countdownOverlay->setVisible(false);
+	m_countdownOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+	root->addWidget(m_stage, 1);
+
 	// ── controls bar ──
 	auto *bar = new QWidget();
 	bar->setObjectName("bar");
@@ -432,16 +445,6 @@ void TeleprompterDock::buildUi()
 	edLay->addWidget(m_editor);
 	m_editorPanel->setVisible(false);
 	root->addWidget(m_editorPanel);
-
-	// ── prompter stage (+ countdown overlay) ──
-	m_stage = new PrompterStage();
-	m_stage->setMinimumHeight(160);
-	m_countdownOverlay = new QLabel(m_stage);
-	m_countdownOverlay->setAlignment(Qt::AlignCenter);
-	m_countdownOverlay->setObjectName("countdown");
-	m_countdownOverlay->setVisible(false);
-	m_countdownOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-	root->addWidget(m_stage, 1);
 
 	// ── status bar ──
 	auto *status = new QWidget();
