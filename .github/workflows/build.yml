@@ -222,27 +222,6 @@ jobs:
         working-directory: build
         run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
 
-      # TEMP diagnostic (macOS): the productbuild .pkg comes out empty even though
-      # the staged install tree is correct. Re-run cpack VERBOSE to capture the
-      # exact pkgbuild/productbuild invocations and dump the generated
-      # distribution.dist so we can see why the component payload is dropped.
-      - name: DIAG macOS productbuild invocation
-        if: runner.os == 'macOS'
-        shell: bash
-        working-directory: build
-        run: |
-          echo "=== TGZ contents (proves the staged install tree is correct) ==="
-          tgz=$(ls *.tar.gz | head -n1); tar tzf "$tgz" 2>/dev/null | head
-          echo "=== distribution.dist (productbuild input) ==="
-          find _CPack_Packages -name 'distribution.dist' -exec cat {} \; 2>/dev/null || echo "(none)"
-          echo "=== component pkg size (empty == the bug) ==="
-          ls -l _CPack_Packages/Darwin/productbuild/*/Contents/Packages/ 2>/dev/null || true
-          echo "=== re-run cpack productbuild VERBOSE (exact pkgbuild/productbuild cmds) ==="
-          rm -rf _CPack_Packages/Darwin/productbuild
-          cpack -C RelWithDebInfo -G productbuild --verbose --debug 2>&1 \
-            | grep -iE 'pkgbuild|productbuild|--root|--install-location|--component|--identifier|--scripts|Execute:|Run command|error|warn' \
-            | head -60 || true
-
       # ── Assert installer PAYLOAD LOCATION (catches the GO-005 defect class) ───
       # CI builds+packages but never installs+launches OBS, so a green Package
       # step does NOT prove the files land where OBS scans. These checks expand
@@ -257,10 +236,16 @@ jobs:
         run: |
           pkg=$(ls *.pkg | head -n1)
           echo "=== $pkg ($(du -h "$pkg" | cut -f1)) ==="
+          # Confirm productbuild's choices-outline is NON-empty (the empty-.pkg
+          # bug was an empty <choices-outline/> — no pkg-ref referenced the
+          # component, so the archive installed nothing). Naming the install
+          # COMPONENT + CPACK_COMPONENTS_ALL populates it.
+          echo "=== distribution.dist choices-outline ==="
+          find _CPack_Packages -name 'distribution.dist' -exec sed -n '/choices-outline/,/\/choices-outline>/p' {} \; 2>/dev/null || true
           # `pkgutil --payload-files` reads the SHIPPED .pkg directly and lists
           # every archived install path — the canonical way to inspect a product
           # archive's payload (no manual xar/cpio plumbing). A real payload here
-          # also proves the CPACK_MONOLITHIC_INSTALL fix worked: before it, the
+          # also proves the component fix worked: before it, the
           # productbuild component was empty and this listed nothing.
           paths=$(pkgutil --payload-files "$pkg" 2>/dev/null)
           echo "=== .pkg payload files ==="

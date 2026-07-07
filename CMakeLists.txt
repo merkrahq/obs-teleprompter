@@ -85,6 +85,14 @@ endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "")
 
+# On macOS the module is packaged INSIDE a `.plugin` bundle, whose Mach-O in
+# Contents/MacOS/ must be named after the bundle (obs-teleprompter, no .so) for
+# OBS to load it. Drop the `.so` suffix on macOS only — Linux keeps `.so` and
+# Windows keeps `.dll`, which is what OBS scans for on those platforms.
+if(APPLE)
+  set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX "")
+endif()
+
 # ── Per-OS install layout ────────────────────────────────────────────────────
 # Each OS has its own OBS plugin directory convention. Installing into these
 # paths is what makes the dock auto-appear on next OBS launch — no Custom Browser
@@ -97,10 +105,19 @@ if(APPLE)
   # the CI step assemble the bundle layout; here we install the raw module +
   # data so the bundle can be staged. Bundle name matches the module.
   set(_obs_plugin_root "${CMAKE_INSTALL_PREFIX}")
+  # Assign the install to an explicit COMPONENT. CPack's productbuild generator
+  # only writes <pkg-ref>/<choice> entries — and thus a non-empty
+  # <choices-outline> — for NAMED components. With the default "Unspecified"
+  # component, productbuild builds the component .pkg (it is ~31 KB, non-empty)
+  # but emits an EMPTY <choices-outline/>, so the final product archive
+  # references nothing and installs NOTHING (the empty-.pkg bug). Naming the
+  # component + listing it in CPACK_COMPONENTS_ALL (below) fixes the outline.
   install(TARGETS ${PROJECT_NAME}
-          LIBRARY DESTINATION "${PROJECT_NAME}.plugin/Contents/MacOS")
+          LIBRARY DESTINATION "${PROJECT_NAME}.plugin/Contents/MacOS"
+          COMPONENT plugin)
   install(DIRECTORY data/locale
-          DESTINATION "${PROJECT_NAME}.plugin/Contents/Resources")
+          DESTINATION "${PROJECT_NAME}.plugin/Contents/Resources"
+          COMPONENT plugin)
 elseif(WIN32)
   # Windows: install into OBS's PER-USER plugin drop-in layout, the same tree the
   # portable zip stages —
@@ -207,14 +224,13 @@ if(APPLE)
   set(CPACK_PRODUCTBUILD_DOMAINS ON)
   set(CPACK_PRODUCTBUILD_DOMAINS_USER ON)
   set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)
-  # CRITICAL: without a declared component, CPack's productbuild generator runs
-  # in component mode with an EMPTY component set and emits a ~2 KB distribution
-  # whose <choices-outline/> is empty and whose Contents/Packages/<name> payload
-  # is empty — i.e. a .pkg that installs NOTHING (no obs-teleprompter.plugin at
-  # all). The DEB/NSIS generators tolerate the default "unspecified" component;
-  # productbuild does not. Force a single-package (non-component) install so the
-  # whole install tree is packaged into one component with a real payload.
-  set(CPACK_MONOLITHIC_INSTALL ON)
+  # Register the named component so productbuild writes a real <choices-outline>
+  # referencing the (already non-empty) component .pkg. Without this the product
+  # archive's outline is empty and the .pkg installs nothing (see the install()
+  # COMPONENT note above). One component, packaged into one product archive.
+  set(CPACK_COMPONENTS_ALL plugin)
+  set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+  set(CPACK_COMPONENT_PLUGIN_DISPLAY_NAME "OBS Teleprompter plugin")
 elseif(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-windows-${_arch}")
