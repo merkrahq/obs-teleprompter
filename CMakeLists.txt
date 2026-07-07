@@ -102,14 +102,26 @@ if(APPLE)
   install(DIRECTORY data/locale
           DESTINATION "${PROJECT_NAME}.plugin/Contents/Resources")
 elseif(WIN32)
-  # Windows: OBS loads .dll modules from <obs>/obs-plugins/64bit and reads data
-  # from <obs>/data/obs-plugins/<name>. The NSIS installer (CPack) relocates
-  # these into %ProgramData%\obs-studio\plugins or the OBS install tree.
+  # Windows: install into OBS's PER-USER plugin drop-in layout, the same tree the
+  # portable zip stages —
+  #     <plugin-root>/bin/64bit/obs-teleprompter.dll
+  #     <plugin-root>/data/locale/en-US.ini
+  # The NSIS block below roots <plugin-root> at %APPDATA%\obs-studio\plugins\
+  # obs-teleprompter (per-user, no admin) via CPACK_NSIS_INSTALL_ROOT +
+  # CPACK_PACKAGE_INSTALL_DIRECTORY, so the final paths are exactly where OBS
+  # scans for user plugins. (These DESTINATIONs are RELATIVE; the CPack install
+  # root supplies the absolute base.)
+  #
+  # GO-005: the previous relative dests `obs-plugins/64bit` + `data/obs-plugins/
+  # <name>` inherited NSIS's default $PROGRAMFILES prefix, landing everything
+  # under `C:\Program Files\OBS Docked Teleprompter\obs-plugins\64bit\...` — a
+  # path OBS never scans, so the dock silently never loaded. Matching the
+  # portable `bin/64bit`+`data` layout fixes both the .exe and the .zip.
   install(TARGETS ${PROJECT_NAME}
-          RUNTIME DESTINATION "obs-plugins/64bit"
-          LIBRARY DESTINATION "obs-plugins/64bit")
+          RUNTIME DESTINATION "bin/64bit"
+          LIBRARY DESTINATION "bin/64bit")
   install(DIRECTORY data/locale
-          DESTINATION "data/obs-plugins/${PROJECT_NAME}")
+          DESTINATION "data")
 else()
   # Linux: system OBS loads flat .so modules from the *multiarch* libdir's
   # obs-plugins/ subdir and reads data from <datadir>/obs/obs-plugins/<name>/.
@@ -180,12 +192,44 @@ if(APPLE)
   set(CPACK_GENERATOR "productbuild;TGZ")
   # macOS is shipped as a universal-ish single bundle; arch omitted from the name.
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-macos")
+  # Install the .plugin bundle into the OBS plugin dir, not the filesystem root
+  # (GO-005/D-002 — same relative-dest defect class as Windows). The install()
+  # rules stage `<name>.plugin/Contents/...` relative to this prefix, so the
+  # bundle lands at <prefix>/obs-teleprompter.plugin/. UNVERIFIED (no Mac in the
+  # lab): the operator must install the CI .pkg and confirm the dock appears.
+  #
+  # Per-user install (~/Library, no admin) via productbuild's user domain. If the
+  # user-domain install proves unreliable on the operator's macOS, the fallback
+  # is a system install at /Library/Application Support/obs-studio/plugins (set
+  # CPACK_PACKAGING_INSTALL_PREFIX to that absolute path and drop the domain vars
+  # — that one needs admin but is the most broadly-scanned location).
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/Library/Application Support/obs-studio/plugins")
+  set(CPACK_PRODUCTBUILD_DOMAINS ON)
+  set(CPACK_PRODUCTBUILD_DOMAINS_USER ON)
+  set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)
 elseif(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-windows-${_arch}")
   set(CPACK_NSIS_PACKAGE_NAME "OBS Docked Teleprompter")
   set(CPACK_NSIS_DISPLAY_NAME "OBS Docked Teleprompter")
   set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
+  # Install into the PER-USER OBS plugin dir, not $PROGRAMFILES (GO-005/D-002).
+  # Final path assembled by NSIS is:
+  #   CPACK_NSIS_INSTALL_ROOT \ CPACK_PACKAGE_INSTALL_DIRECTORY \ <dest>
+  #   = $APPDATA\obs-studio\plugins \ obs-teleprompter \ bin\64bit\obs-teleprompter.dll
+  # ($APPDATA is an NSIS builtin → C:\Users\<user>\AppData\Roaming, exactly where
+  # OBS scans for user plugins.) The ZIP generator uses the same
+  # CPACK_PACKAGE_INSTALL_DIRECTORY, so the .zip contains a ready
+  # `obs-teleprompter/bin/64bit`+`data` drop-in tree too.
+  set(CPACK_NSIS_INSTALL_ROOT "$APPDATA\\obs-studio\\plugins")
+  set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME}")
+  # Per-user install: run unelevated (no UAC), resolve $APPDATA/shortcuts for the
+  # current user, and write the uninstall entry under HKCU (SetShellVarContext
+  # current makes CPack's default uninstall registry writes land in the per-user
+  # hive instead of HKLM, which would need admin).
+  set(CPACK_NSIS_DEFINES "RequestExecutionLevel user")
+  set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "SetShellVarContext current")
+  set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "SetShellVarContext current")
 else()
   set(CPACK_GENERATOR "DEB;TGZ")
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-linux-${_arch}")
