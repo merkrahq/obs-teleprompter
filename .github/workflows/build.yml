@@ -69,19 +69,28 @@ jobs:
       # install its Development component so libobsConfig.cmake /
       # obs-frontend-apiConfig.cmake land in a prefix our plugin find_package()s.
       #
-      # Versions are pinned to OBS 30.0.2's own buildspec (obs-deps + qt6 =
-      # 2023-11-03) so libobs/Qt ABI stay coherent — bump all three together when
-      # targeting a new OBS major.
+      # Versions are pinned to OBS 31.1.1's own buildspec (obs-deps + qt6 =
+      # 2025-07-11) so libobs/Qt ABI stay coherent — bump all three together when
+      # targeting a new OBS major. (OBS 30.0.2's 2023 build scripts break on the
+      # current runners' Xcode/VS, so we target OBS 31.)
       - name: Install CMake + Ninja (Windows/macOS)
         if: runner.os != 'Linux'
         uses: lukka/get-cmake@latest
+
+      # Put MSVC (cl/link) on PATH so the Ninja generator can find the compiler
+      # without relying on the "Visual Studio 17 2022" generator's VS discovery.
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Fetch obs-studio source (Windows/macOS)
         if: runner.os != 'Linux'
         uses: actions/checkout@v4
         with:
           repository: obsproject/obs-studio
-          ref: '30.0.2'
+          ref: '31.1.1'
           path: obs-studio
           submodules: recursive
 
@@ -89,14 +98,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          DEPS_DATE: '2023-11-03'
+          DEPS_DATE: '2025-07-11'
         run: |
           $base = "https://github.com/obsproject/obs-deps/releases/download/$env:DEPS_DATE"
           Invoke-WebRequest "$base/windows-deps-$env:DEPS_DATE-x64.zip" -OutFile deps.zip
           Invoke-WebRequest "$base/windows-deps-qt6-$env:DEPS_DATE-x64.zip" -OutFile qt6.zip
           Expand-Archive deps.zip -DestinationPath "$PWD/obs-sdk" -Force
           Expand-Archive qt6.zip  -DestinationPath "$PWD/obs-sdk" -Force
-          cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
+          cmake -S obs-studio -B obs-studio/build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" `
             -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON `
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
@@ -107,7 +117,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         env:
-          DEPS_DATE: '2023-11-03'
+          DEPS_DATE: '2025-07-11'
         run: |
           base="https://github.com/obsproject/obs-deps/releases/download/${DEPS_DATE}"
           mkdir -p obs-sdk

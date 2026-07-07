@@ -27,8 +27,9 @@ together. Everything is local; nothing is sent anywhere.
 
 ## Requirements
 
-- **OBS Studio 28 or newer** (Qt6 build). That's it — the teleprompter is a native dock once
-  installed.
+- **OBS Studio 31 or newer** (Qt6 build). That's it — the teleprompter is a native dock once
+  installed. (The prebuilt installers target the OBS 31 ABI; to build against an older OBS,
+  see [`BUILD.md`](./BUILD.md).)
 
 ## Install
 

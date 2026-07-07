@@ -160,7 +160,7 @@ else()
   set(CPACK_DEBIAN_PACKAGE_SECTION "video")
   set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
   # OBS + Qt6 are runtime deps; shlibdeps fills in the exact libobs/Qt versions.
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "obs-studio (>= 28)")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "obs-studio (>= 31)")
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
   # Pin the .deb filename too (the DEB generator ignores CPACK_PACKAGE_FILE_NAME).
   set(CPACK_DEBIAN_FILE_NAME "obs-teleprompter-linux-${_arch}.deb")
