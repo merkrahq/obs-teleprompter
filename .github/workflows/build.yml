@@ -60,30 +60,23 @@ jobs:
             obs-studio libobs-dev \
             qt6-base-dev qt6-base-private-dev
 
-      # ── Windows / macOS: install Qt6 and the OBS SDK. OBS is not on the
-      #    default runners, so we pull the prebuilt libobs SDK from the OBS
-      #    release for the matching version. Qt6 via install-qt-action. ─────────
-      - name: Install Qt (Windows/macOS)
-        if: runner.os != 'Linux'
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.*'
-          cache: true
-
+      # ── Windows / macOS: build the OBS SDK on the runner. ────────────────────
+      # OBS ships no standalone prebuilt libobs SDK, so — following the official
+      # obs-plugintemplate approach — we (a) download the prebuilt obs-deps +
+      # matching Qt6 bundle (third-party libs + the exact Qt build OBS uses, which
+      # avoids Qt ABI mismatch), (b) build obs-studio's `obs-frontend-api` target
+      # from source against them (this transitively builds libobs), and (c)
+      # install its Development component so libobsConfig.cmake /
+      # obs-frontend-apiConfig.cmake land in a prefix our plugin find_package()s.
+      #
+      # Versions are pinned to OBS 30.0.2's own buildspec (obs-deps + qt6 =
+      # 2023-11-03) so libobs/Qt ABI stay coherent — bump all three together when
+      # targeting a new OBS major.
       - name: Install CMake + Ninja (Windows/macOS)
         if: runner.os != 'Linux'
         uses: lukka/get-cmake@latest
 
-      # The OBS SDK (libobs + obs-frontend-api CMake config packages) is not
-      # bundled with the GitHub runners. Check out the matching obs-studio source
-      # and configure it just enough to export the libobs/frontend CMake config
-      # packages, then point our build at them via CMAKE_PREFIX_PATH.
-      #
-      # This is the portable-across-OS path: obs-studio's own CMake produces the
-      # OBS::libobs / OBS::obs-frontend-api targets we find_package() against.
-      # Pin OBS_VERSION to the minimum ABI we target so the plugin loads on that
-      # OBS and newer.
-      - name: Fetch OBS SDK (Windows/macOS)
+      - name: Fetch obs-studio source (Windows/macOS)
         if: runner.os != 'Linux'
         uses: actions/checkout@v4
         with:
@@ -92,20 +85,41 @@ jobs:
           path: obs-studio
           submodules: recursive
 
-      - name: Build OBS SDK (Windows/macOS)
-        if: runner.os != 'Linux'
-        shell: bash
+      - name: Build OBS SDK from source (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          DEPS_DATE: '2023-11-03'
         run: |
-          # Configure obs-studio far enough to install its CMake config packages
-          # (libobs + frontend-api) into a local prefix. We disable the full app
-          # build surface we don't need; the plugin only links libobs + frontend.
-          cmake -S obs-studio -B obs-studio/build \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DENABLE_PLUGINS=OFF -DENABLE_UI=ON -DENABLE_FRONTEND_API=ON \
-            -DCMAKE_INSTALL_PREFIX="$PWD/obs-sdk" || \
-            echo "::warning::obs-studio configure needs the OBS deps bundle on this runner; see BUILD.md § CI for the obs-deps setup this step depends on."
-          cmake --build obs-studio/build --target obs-frontend-api libobs --config RelWithDebInfo || true
-          cmake --install obs-studio/build --prefix "$PWD/obs-sdk" || true
+          $base = "https://github.com/obsproject/obs-deps/releases/download/$env:DEPS_DATE"
+          Invoke-WebRequest "$base/windows-deps-$env:DEPS_DATE-x64.zip" -OutFile deps.zip
+          Invoke-WebRequest "$base/windows-deps-qt6-$env:DEPS_DATE-x64.zip" -OutFile qt6.zip
+          Expand-Archive deps.zip -DestinationPath "$PWD/obs-sdk" -Force
+          Expand-Archive qt6.zip  -DestinationPath "$PWD/obs-sdk" -Force
+          cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" `
+            -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON `
+            -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
+          cmake --build obs-studio/build --config Release --target obs-frontend-api
+          cmake --install obs-studio/build --config Release --component Development --prefix "$PWD/obs-sdk"
+
+      - name: Build OBS SDK from source (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          DEPS_DATE: '2023-11-03'
+        run: |
+          base="https://github.com/obsproject/obs-deps/releases/download/${DEPS_DATE}"
+          mkdir -p obs-sdk
+          curl -sL "$base/macos-deps-${DEPS_DATE}-universal.tar.xz"     | tar -xJ -C obs-sdk
+          curl -sL "$base/macos-deps-qt6-${DEPS_DATE}-universal.tar.xz" | tar -xJ -C obs-sdk
+          cmake -S obs-studio -B obs-studio/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" \
+            -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON \
+            -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
+          cmake --build obs-studio/build --config Release --target obs-frontend-api
+          cmake --install obs-studio/build --config Release --component Development --prefix "$PWD/obs-sdk"
 
       # ── Configure + build (all OSes) ────────────────────────────────────────
       - name: Configure
@@ -113,6 +127,7 @@ jobs:
         run: |
           EXTRA=""
           if [ "${{ runner.os }}" != "Linux" ]; then
+            # obs-sdk holds BOTH the OBS SDK (from source) and the obs-deps Qt6.
             EXTRA="-DCMAKE_PREFIX_PATH=$PWD/obs-sdk"
           fi
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo $EXTRA

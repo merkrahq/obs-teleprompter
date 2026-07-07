@@ -128,15 +128,22 @@ artifacts on every push/PR, and publishes them to a **GitHub Release** on a
   verified path.
 - **Windows/macOS** need the OBS SDK (the `OBS::libobs` /
   `OBS::obs-frontend-api` CMake config packages), which the GitHub runners don't
-  ship. The workflow checks out the matching `obsproject/obs-studio` source and
-  configures/installs its `libobs` + `obs-frontend-api` targets into a local
-  prefix, then points our build at it via `CMAKE_PREFIX_PATH`. That OBS
-  configure step depends on the **OBS deps bundle** (`obs-deps`) for its own
-  third-party libraries; if a runner lacks it the step emits a `::warning::` and
-  the SDK build must be completed with the obs-deps setup (the standard
-  `obs-plugintemplate` CI pattern) before the Windows/macOS artifacts build
-  clean. Only the Linux artifact is proven locally on this Linux-only dev box;
-  the Windows/macOS legs are validated when the runners first execute.
+  ship. Following the official `obs-plugintemplate` approach, the workflow:
+  1. downloads the prebuilt **obs-deps** bundle + matching **Qt6** for the OS
+     (`obsproject/obs-deps` release `2023-11-03`, the set OBS 30.0.2's own
+     buildspec pins — so libobs/Qt ABI stay coherent);
+  2. checks out `obsproject/obs-studio` `30.0.2` and builds its
+     **`obs-frontend-api`** target from source against those deps (this
+     transitively builds `libobs`);
+  3. installs the **`Development`** component into a local `obs-sdk` prefix, so
+     `libobsConfig.cmake` / `obs-frontend-apiConfig.cmake` (and the obs-deps Qt6)
+     are on `CMAKE_PREFIX_PATH` when our plugin configures.
+
+  Bump the three pins (`obs-studio` ref + obs-deps/qt6 `DEPS_DATE`) together when
+  targeting a new OBS major — libobs has no cross-major ABI guarantee. Only the
+  Linux artifact is proven locally on this Linux-only dev box; the Windows/macOS
+  legs are validated when the runners execute (push to a branch or
+  `workflow_dispatch` and read the Actions logs).
 
 To cut a release: `git tag v0.1.0 && git push origin v0.1.0` → the `release`
 job gathers all three OSes' artifacts into one GitHub Release.
