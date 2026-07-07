@@ -15,8 +15,9 @@ This provides: OBS Studio 30.x, `libobs-dev` (with the `libobs` and
 `obs-frontend-api` CMake config packages under
 `/usr/lib/x86_64-linux-gnu/cmake/`), Qt6, CMake ≥ 3.16, and Ninja.
 
-> Windows / macOS toolchains and packaging are phase **002.D**. The CMake and
-> source here are already cross-platform; only packaging/signing differs per OS.
+> Windows / macOS toolchains and packaging run in CI (see **CI** below). The
+> CMake and source here are already cross-platform; only the per-OS install
+> destinations, packaging generators, and signing differ.
 
 ## Build
 

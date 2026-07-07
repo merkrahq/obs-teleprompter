@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # below produce per-OS installers (002.D) so the dock auto-appears after install:
 #   Linux   → .deb / .tar.gz  (buildable + verifiable on the dev box)
 #   Windows → NSIS installer  (CI-only; no local Windows toolchain)
-#   macOS   → .pkg / .dmg     (CI-only; no local macOS toolchain)
+#   macOS   → .pkg / .tar.gz  (CI-only; no local macOS toolchain)
 #
 # Modeled on the official obs-plugintemplate pattern, simplified to a single
 # self-contained CMakeLists. The source is already cross-platform; only the
