@@ -84,6 +84,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+          # Pin a Windows SDK >= 10.0.20348 (OBS 31 requirement). With the Ninja
+          # generator the SDK is taken from this environment, not
+          # CMAKE_SYSTEM_VERSION, so it must be selected here.
+          sdk: '10.0.26100.0'
 
       - name: Fetch obs-studio source (Windows/macOS)
         if: runner.os != 'Linux'
@@ -112,12 +116,13 @@ jobs:
           Write-Host "Using Windows SDK $winsdk"
           cmake -S obs-studio -B obs-studio/build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_SYSTEM_VERSION="$winsdk" `
             -DCMAKE_PREFIX_PATH="$PWD/obs-sdk" `
             -DENABLE_PLUGINS=OFF -DENABLE_UI=OFF -DENABLE_FRONTEND_API=ON `
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
           cmake --build obs-studio/build --config Release --target obs-frontend-api
           cmake --install obs-studio/build --config Release --component Development --prefix "$PWD/obs-sdk"
+          Write-Host "=== installed CMake config packages ==="
+          Get-ChildItem -Recurse "$PWD/obs-sdk" -Filter "libobsConfig.cmake" | Select-Object FullName
 
       - name: Build OBS SDK from source (macOS)
         if: runner.os == 'macOS'
@@ -137,6 +142,8 @@ jobs:
             -DENABLE_SCRIPTING=OFF -DENABLE_WEBSOCKET=OFF
           cmake --build obs-studio/build --config Release --target obs-frontend-api
           cmake --install obs-studio/build --config Release --component Development --prefix "$PWD/obs-sdk"
+          echo "=== installed CMake config packages ==="
+          find "$PWD/obs-sdk" -name 'libobsConfig.cmake' -o -name 'obs-frontend-apiConfig.cmake'
 
       # ── Configure + build (all OSes) ────────────────────────────────────────
       - name: Configure
@@ -145,7 +152,10 @@ jobs:
           EXTRA=""
           if [ "${{ runner.os }}" != "Linux" ]; then
             # obs-sdk holds BOTH the OBS SDK (from source) and the obs-deps Qt6.
-            EXTRA="-DCMAKE_PREFIX_PATH=$PWD/obs-sdk"
+            # Point at the prefix AND its lib/cmake so find_package resolves the
+            # libobs / obs-frontend-api config packages regardless of subdir, and
+            # add the framework path for macOS's framework-style install.
+            EXTRA="-DCMAKE_PREFIX_PATH=$PWD/obs-sdk;$PWD/obs-sdk/lib/cmake -DCMAKE_FRAMEWORK_PATH=$PWD/obs-sdk/Frameworks;$PWD/obs-sdk/lib"
           fi
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo $EXTRA
 
