@@ -250,24 +250,20 @@ jobs:
           paths=$(pkgutil --payload-files "$pkg" 2>/dev/null)
           echo "=== .pkg payload files ==="
           echo "${paths:-<empty>}"
-          [ -n "$paths" ] || { echo "FAIL: .pkg payload is EMPTY (installs nothing — check CPACK_MONOLITHIC_INSTALL / install() rules)"; exit 1; }
-          # productbuild archives the install paths RELATIVE to the component's
-          # install-location, so the bundle appears at the payload root as
-          # obs-teleprompter.plugin/Contents/... — match anywhere in the path.
-          echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
-            || { echo "FAIL: .plugin Mach-O not in the .pkg payload"; exit 1; }
-          echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
-            || { echo "FAIL: locale not inside the .plugin bundle"; exit 1; }
-          # WHERE the bundle lands (the GO-005 defect class) = the component's
-          # install-location prefix in PackageInfo. Extract it with xar and assert
-          # it is the OBS plugins dir, not '/' or an arbitrary prefix.
-          mkdir -p pkg-xar && xar -xf "$pkg" -C pkg-xar
-          echo "=== PackageInfo install-location(s) ==="
-          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' || true
-          find pkg-xar -name PackageInfo -exec cat {} \; | grep -o 'install-location="[^"]*"' \
-            | grep -E 'install-location="/?Library/Application Support/obs-studio/plugins/?"' \
-            || { echo "FAIL: component install-location is not the OBS plugins dir"; exit 1; }
-          echo "OK: macOS .pkg installs the plugin bundle into the OBS plugin dir"
+          [ -n "$paths" ] || { echo "FAIL: .pkg payload is EMPTY (installs nothing — check the install() COMPONENT + CPACK_COMPONENTS_ALL)"; exit 1; }
+          # This .pkg uses pkgbuild --install-location "/" and bakes the FULL
+          # destination into the payload paths, so the effective install location
+          # (the GO-005 defect class) is the OBS plugins prefix carried in the
+          # payload path itself. Assert the bundle Mach-O + locale land at
+          # /Library/Application Support/obs-studio/plugins/obs-teleprompter.plugin/…
+          # (pkgutil prints payload paths with a leading './'; the '/' before
+          # Library is thus optional). The Mach-O must be the bundle-named exec
+          # (obs-teleprompter, no .so) or OBS won't load the bundle.
+          echo "$paths" | grep -E '(^|\./|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
+            || { echo "FAIL: .plugin Mach-O is not under /Library/Application Support/obs-studio/plugins (GO-005 location guard)"; exit 1; }
+          echo "$paths" | grep -E '(^|\./|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
+            || { echo "FAIL: locale not under the OBS plugins prefix inside the .plugin bundle"; exit 1; }
+          echo "OK: macOS .pkg installs obs-teleprompter.plugin into /Library/Application Support/obs-studio/plugins"
 
       - name: Assert Windows .zip has the OBS drop-in layout
         if: runner.os == 'Windows'
