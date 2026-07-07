@@ -236,20 +236,42 @@ jobs:
         run: |
           pkg=$(ls *.pkg | head -n1)
           echo "Expanding $pkg"
-          pkgutil --expand "$pkg" pkg-expanded
-          # The productbuild payload is a gzip'd cpio (Payload) inside the
-          # component .pkg. List every archived path across all components.
-          paths=$(find pkg-expanded -name Payload -exec sh -c \
-            'cat "$1" | gunzip -dc | cpio -it 2>/dev/null' _ {} \;)
-          echo "=== .pkg payload paths ==="
+          # `pkgutil --expand-full` fully DECOMPRESSES each component's Payload
+          # into an on-disk `Payload/` tree, so a plain `find` enumerates the real
+          # installed files. The earlier `find -name Payload | cpio` pipeline
+          # assumed a gzip'd-cpio Payload; CPack's productbuild archive isn't
+          # laid out that way, so it enumerated nothing (empty list → grep fail).
+          # --expand-full sidesteps the compression/format guessing entirely.
+          pkgutil --expand-full "$pkg" pkg-expanded
+          echo "=== expanded component payload trees ==="
+          find pkg-expanded -type d -name Payload
+          # Enumerate every regular file under any expanded Payload tree, printed
+          # relative to that Payload dir — i.e. the install path the .pkg writes
+          # under its packaging prefix (/Library/Application Support/obs-studio/
+          # plugins). Prefix the OBS-plugins segment back on for a precise assert.
+          paths=$(find pkg-expanded -type d -name Payload | while read -r p; do
+            ( cd "$p" && find . -type f -o -type l )
+          done | sed 's,^\./,,')
+          echo "=== .pkg payload paths (relative to packaging prefix) ==="
           echo "$paths"
-          # Must install the .plugin bundle's Mach-O under the OBS plugins prefix
-          # (Library/Application Support/obs-studio/plugins). productbuild strips
-          # the leading slash in the archived cpio paths, so match without it.
-          echo "$paths" | grep -E '(^|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
-            || { echo "FAIL: .plugin Mach-O not under the OBS plugins prefix"; exit 1; }
-          echo "$paths" | grep -E 'obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
+          [ -n "$paths" ] || { echo "FAIL: could not enumerate any .pkg payload files"; exit 1; }
+          # The install rules stage <name>.plugin/Contents/... relative to the
+          # /Library/Application Support/obs-studio/plugins packaging prefix, so
+          # in the payload tree the bundle appears at the ROOT as
+          # obs-teleprompter.plugin/Contents/... — match on that.
+          echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
+            || { echo "FAIL: .plugin Mach-O not in the .pkg payload (packaged under the OBS plugins prefix)"; exit 1; }
+          echo "$paths" | grep -E '(^|/)obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
             || { echo "FAIL: locale not inside the .plugin bundle"; exit 1; }
+          # Payload paths are relative to the component's install-location — the
+          # prefix that decides WHERE the bundle lands (the GO-005 defect class).
+          # It lives in each component's PackageInfo XML; assert it is the OBS
+          # plugins dir, not the filesystem root or an arbitrary prefix.
+          echo "=== component install-location(s) ==="
+          find pkg-expanded -name PackageInfo -exec grep -o 'install-location="[^"]*"' {} \;
+          find pkg-expanded -name PackageInfo -exec grep -o 'install-location="[^"]*"' {} \; \
+            | grep -E 'install-location="/?Library/Application Support/obs-studio/plugins/?"' \
+            || { echo "FAIL: component install-location is not the OBS plugins dir"; exit 1; }
           echo "OK: macOS .pkg installs the plugin bundle into the OBS plugin dir"
 
       - name: Assert Windows .zip has the OBS drop-in layout
@@ -260,11 +282,52 @@ jobs:
           zip=$(ls *.zip | grep -v portable | head -n1)
           echo "=== $zip contents ==="
           unzip -l "$zip"
-          unzip -l "$zip" | grep -E 'obs-teleprompter/bin/64bit/obs-teleprompter\.dll' \
-            || { echo "FAIL: .dll not at obs-teleprompter/bin/64bit/ in the zip"; exit 1; }
-          unzip -l "$zip" | grep -E 'obs-teleprompter/data/locale/en-US\.ini' \
-            || { echo "FAIL: locale not at obs-teleprompter/data/locale/ in the zip"; exit 1; }
-          echo "OK: Windows .zip carries the OBS per-user drop-in tree"
+          # The ZIP generator names the single top folder after
+          # CPACK_PACKAGE_FILE_NAME (obs-teleprompter-windows-x86_64/), NOT
+          # CPACK_PACKAGE_INSTALL_DIRECTORY — so match the OBS drop-in tree under
+          # ANY top dir (.*/bin/64bit/...). The .exe installer (asserted below) is
+          # what carries the real %APPDATA% install ROOT; the .zip only proves the
+          # bin/64bit + data/locale drop-in LAYOUT is intact.
+          unzip -l "$zip" | grep -E '(^|/)bin/64bit/obs-teleprompter\.dll$' \
+            || { echo "FAIL: .dll not at <top>/bin/64bit/ in the zip"; exit 1; }
+          unzip -l "$zip" | grep -E '(^|/)data/locale/en-US\.ini$' \
+            || { echo "FAIL: locale not at <top>/data/locale/ in the zip"; exit 1; }
+          echo "OK: Windows .zip carries the OBS drop-in layout (bin/64bit + data/locale)"
+
+      # The .exe is the REAL installer and the true GO-005 guard: it carries the
+      # install ROOT ($APPDATA\obs-studio\plugins, NOT $PROGRAMFILES). The install
+      # root is an NSIS runtime builtin ($APPDATA), resolved at install time, so
+      # it can't be read from the compiled .exe — but CPack writes it verbatim
+      # into the generated NSIS script (project.nsi) as the InstallDir. Assert
+      # that script roots the install at $APPDATA\obs-studio\plugins\obs-teleprompter
+      # and runs per-user (unelevated), and that the .exe embeds the drop-in tree.
+      - name: Assert Windows .exe roots the install at the per-user OBS plugin dir
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: build
+        run: |
+          nsi=$(find _CPack_Packages -name project.nsi | head -n1)
+          echo "=== NSIS install script: $nsi ==="
+          [ -n "$nsi" ] || { echo "FAIL: generated project.nsi not found"; exit 1; }
+          grep -nE 'InstallDir|RequestExecutionLevel|SetShellVarContext' "$nsi" || true
+          # InstallDir must be $APPDATA\obs-studio\plugins\obs-teleprompter (CPack
+          # joins CPACK_NSIS_INSTALL_ROOT + CPACK_PACKAGE_INSTALL_DIRECTORY with a
+          # backslash and forward slashes in the ROOT are normalized to '\').
+          grep -E 'InstallDir[[:space:]]+"?\$APPDATA[\\/]obs-studio[\\/]plugins[\\/]obs-teleprompter"?' "$nsi" \
+            || { echo "FAIL: InstallDir is not \$APPDATA\\obs-studio\\plugins\\obs-teleprompter (GO-005 regression: check it is not \$PROGRAMFILES)"; exit 1; }
+          # Must be a per-user (unelevated) install so $APPDATA resolves to the
+          # current user's Roaming dir where OBS scans for plugins.
+          grep -E 'RequestExecutionLevel[[:space:]]+user' "$nsi" \
+            || { echo "FAIL: installer is not RequestExecutionLevel user (per-user)"; exit 1; }
+          # And confirm the .exe actually embeds the OBS drop-in payload tree.
+          exe=$(ls *.exe | head -n1)
+          echo "=== $exe embedded payload (7z listing) ==="
+          7z l "$exe" | tee exe-listing.txt
+          grep -E 'bin[\\/]64bit[\\/]obs-teleprompter\.dll' exe-listing.txt \
+            || { echo "FAIL: .dll not embedded at bin\\64bit\\ in the .exe"; exit 1; }
+          grep -E 'data[\\/]locale[\\/]en-US\.ini' exe-listing.txt \
+            || { echo "FAIL: locale not embedded at data\\locale\\ in the .exe"; exit 1; }
+          echo "OK: Windows .exe installs per-user into \$APPDATA\\obs-studio\\plugins\\obs-teleprompter"
 
       # ── Portable "drag-into-OBS" folder (no installer, no admin rights) ──────
       - name: Stage portable plugin folder
