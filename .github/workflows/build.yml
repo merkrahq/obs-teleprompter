@@ -222,21 +222,26 @@ jobs:
         working-directory: build
         run: cpack -C RelWithDebInfo -G "${{ matrix.cpack_generators }}"
 
-      # TEMP diagnostic (macOS): the productbuild .pkg is coming out empty. Dump
-      # what `cmake --install` produced and what CPack staged, plus the TGZ (same
-      # install tree) so we can see whether install() or productbuild is at fault.
-      - name: DIAG macOS install/staging tree
+      # TEMP diagnostic (macOS): the productbuild .pkg comes out empty even though
+      # the staged install tree is correct. Re-run cpack VERBOSE to capture the
+      # exact pkgbuild/productbuild invocations and dump the generated
+      # distribution.dist so we can see why the component payload is dropped.
+      - name: DIAG macOS productbuild invocation
         if: runner.os == 'macOS'
         shell: bash
         working-directory: build
         run: |
-          echo "=== install_manifest.txt ==="; cat install_manifest.txt 2>/dev/null || echo "(none)"
-          echo "=== TGZ contents (identical install tree to the .pkg) ==="
-          tgz=$(ls *.tar.gz | head -n1); echo "$tgz"; tar tzf "$tgz" 2>/dev/null || echo "(empty/none)"
-          echo "=== full _CPack_Packages tree ==="; find _CPack_Packages | sort
-          echo "=== fresh DESTDIR install to inspect what install() emits ==="
-          rm -rf /tmp/ddir && DESTDIR=/tmp/ddir cmake --install . --config RelWithDebInfo 2>&1 | tail -20 || true
-          find /tmp/ddir 2>/dev/null | sort
+          echo "=== TGZ contents (proves the staged install tree is correct) ==="
+          tgz=$(ls *.tar.gz | head -n1); tar tzf "$tgz" 2>/dev/null | head
+          echo "=== distribution.dist (productbuild input) ==="
+          find _CPack_Packages -name 'distribution.dist' -exec cat {} \; 2>/dev/null || echo "(none)"
+          echo "=== component pkg size (empty == the bug) ==="
+          ls -l _CPack_Packages/Darwin/productbuild/*/Contents/Packages/ 2>/dev/null || true
+          echo "=== re-run cpack productbuild VERBOSE (exact pkgbuild/productbuild cmds) ==="
+          rm -rf _CPack_Packages/Darwin/productbuild
+          cpack -C RelWithDebInfo -G productbuild --verbose --debug 2>&1 \
+            | grep -iE 'pkgbuild|productbuild|--root|--install-location|--component|--identifier|--scripts|Execute:|Run command|error|warn' \
+            | head -60 || true
 
       # ── Assert installer PAYLOAD LOCATION (catches the GO-005 defect class) ───
       # CI builds+packages but never installs+launches OBS, so a green Package
