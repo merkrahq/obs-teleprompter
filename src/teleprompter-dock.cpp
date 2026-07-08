@@ -66,7 +66,11 @@ const char *kBad = "#ff5b5b";
 // geometric shapes have no colour-emoji form, so they always draw as plain
 // white text: ▮▮ (two U+25AE black vertical rectangles) for Pause, ■ (U+25A0
 // black square) for Stop. See GO-012.
-const QString kPauseGlyph = QStringLiteral("▮▮"); // ▮▮
+// ❚❚ (U+275A HEAVY VERTICAL BAR ×2) aligns to the text baseline/height far
+// better than the full-height ▮ (U+25AE) did, and ■ (U+25A0) is the standard
+// stop square — both are text-presentation (no colour-emoji form), so they
+// always render white. See GO-012.
+const QString kPauseGlyph = QStringLiteral("❚❚"); // ❚❚
 const QString kStopGlyph = QStringLiteral("■");        // ■
 
 TeleprompterDock *g_instance = nullptr;
@@ -1088,8 +1092,7 @@ void TeleprompterDock::setRecordingIndicator(bool on)
 
 void TeleprompterDock::shrinkDockToFit()
 {
-	// Walk up to the hosting QDockWidget and the QMainWindow that owns it
-	// (OBS wraps our widget in a QDockWidget inside its main window).
+	// Walk up to the hosting QDockWidget (OBS wraps our widget in one).
 	QWidget *w = parentWidget();
 	QDockWidget *dock = nullptr;
 	while (w) {
@@ -1097,33 +1100,35 @@ void TeleprompterDock::shrinkDockToFit()
 			dock = qobject_cast<QDockWidget *>(w);
 		w = w->parentWidget();
 	}
-	if (!dock || dock->isFloating())
-		// Floating docks are freely user-resizable and already shrink to
-		// their layout when a child hides — leave them alone.
-		return;
-	auto *mainWin = qobject_cast<QMainWindow *>(dock->parentWidget());
-	if (!mainWin)
+	if (!dock)
 		return;
 
-	// A docked QDockWidget keeps its grown height when a child panel is
-	// hidden — QMainWindow won't shrink it on its own, so closing a panel
-	// leaves dead space. QMainWindow::resizeDocks() is the purpose-built API
-	// to drive a dock to a specific size. Defer to the next event-loop turn
-	// so the just-hidden panel has left the layout and layout()->sizeHint()
-	// reflects the reduced content, then ask the main window to resize the
-	// dock's HEIGHT down to that hint. (The earlier maximumHeight clamp/release
-	// approach did not work against OBS's dock manager — round 2.)
+	// A dock keeps its grown height when a child panel is hidden, so closing
+	// a panel leaves dead space. Handle BOTH states (the operator runs the
+	// dock FLOATING — round-2 wrongly skipped that case):
+	//   • Floating → the dock is a top-level window; resize() it directly
+	//     down to the reduced content height (keep its current width).
+	//   • Docked   → QMainWindow won't shrink a dock on its own; use the
+	//     purpose-built QMainWindow::resizeDocks() to drive its height.
+	// Defer one event-loop turn so the just-hidden panel has left the layout
+	// and sizeHint() reflects the reduced content before we resize.
+	QPointer<TeleprompterDock> self(this);
 	QPointer<QDockWidget> guardDock(dock);
-	QPointer<QMainWindow> guardWin(mainWin);
-	QTimer::singleShot(0, this, [this, guardDock, guardWin]() {
-		if (!guardDock || !guardWin)
+	QTimer::singleShot(0, this, [self, guardDock]() {
+		if (!self || !guardDock)
 			return;
-		if (layout())
-			layout()->activate();
-		const int target = sizeHint().height();
-		if (target > 0)
-			guardWin->resizeDocks({guardDock}, {target},
-					      Qt::Vertical);
+		if (self->layout())
+			self->layout()->activate();
+		QDockWidget *d = guardDock;
+		const int target = d->sizeHint().height();
+		if (target <= 0)
+			return;
+		if (d->isFloating()) {
+			d->resize(d->width(), target);
+		} else if (auto *mainWin = qobject_cast<QMainWindow *>(
+				   d->parentWidget())) {
+			mainWin->resizeDocks({d}, {target}, Qt::Vertical);
+		}
 	});
 }
 
