@@ -21,6 +21,7 @@
 #include <QFile>
 #include <QFontMetrics>
 #include <QFrame>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QJsonDocument>
@@ -35,6 +36,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QScrollBar>
 #include <QSlider>
 #include <QStyle>
@@ -64,6 +66,28 @@ const char *kBad = "#ff5b5b";
 TeleprompterDock *g_instance = nullptr;
 
 enum class TransportIcon { Play, Pause, Stop, Reset };
+
+QDockWidget *hostingDockWidget(QWidget *widget)
+{
+	for (QWidget *w = widget; w; w = w->parentWidget()) {
+		if (auto *dock = qobject_cast<QDockWidget *>(w))
+			return dock;
+	}
+	return nullptr;
+}
+
+QRect availableGeometryFor(const QRect &rect)
+{
+	QScreen *screen = QGuiApplication::screenAt(rect.center());
+	if (!screen)
+		screen = QGuiApplication::primaryScreen();
+	return screen ? screen->availableGeometry() : QRect();
+}
+
+int clampedCoord(int value, int minValue, int maxValue)
+{
+	return qMin(qMax(value, minValue), maxValue);
+}
 
 QIcon makeTransportIcon(TransportIcon icon)
 {
@@ -342,6 +366,16 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 
 	// keyboard shortcuts: dock-wide filter
 	qApp->installEventFilter(this);
+
+	// OBS/Qt defaults a newly floating dock near the middle of the screen.
+	// Nudge only that default-looking first placement to top-center; saved/user
+	// geometry is left alone by the centered-position check below.
+	QTimer::singleShot(0, this,
+			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
+	QTimer::singleShot(250, this,
+			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
+	QTimer::singleShot(1000, this,
+			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
 }
 
 TeleprompterDock::~TeleprompterDock()
@@ -664,14 +698,60 @@ void TeleprompterDock::showToolWindow(QWidget *window, const QSize &fallbackSize
 	if (window->size().isEmpty())
 		window->resize(fallbackSize);
 	if (!window->isVisible()) {
-		const QPoint pos =
-			mapToGlobal(QPoint(qMax(0, width() - window->width()),
-					   height() + 8));
+		const QRect anchor(mapToGlobal(QPoint(0, 0)), size());
+		const QRect screen = availableGeometryFor(anchor);
+		const QSize popupSize = window->size().expandedTo(fallbackSize);
+		const int margin = 8;
+		int x = anchor.right() - popupSize.width() + 1;
+		int y = anchor.bottom() + margin;
+		if (screen.isValid()) {
+			x = clampedCoord(x, screen.left() + margin,
+					 qMax(screen.left() + margin,
+					      screen.right() - popupSize.width() -
+						      margin + 1));
+			if (y + popupSize.height() > screen.bottom() - margin + 1)
+				y = anchor.top() - popupSize.height() - margin;
+			y = clampedCoord(y, screen.top() + margin,
+					 qMax(screen.top() + margin,
+					      screen.bottom() - popupSize.height() -
+						      margin + 1));
+		}
+		const QPoint pos(x, y);
 		window->move(pos);
 	}
 	window->show();
 	window->raise();
 	window->activateWindow();
+}
+
+void TeleprompterDock::applyDefaultFloatingDockPlacement()
+{
+	QDockWidget *dock = hostingDockWidget(this);
+	if (!dock || !dock->isFloating() || !dock->isVisible())
+		return;
+
+	const QRect frame = dock->frameGeometry();
+	const QRect screen = availableGeometryFor(frame);
+	if (!frame.isValid() || !screen.isValid())
+		return;
+
+	const QPoint centered(screen.left() + (screen.width() - frame.width()) / 2,
+			      screen.top() + (screen.height() - frame.height()) / 2);
+	const QPoint current = frame.topLeft();
+	const bool looksDefaultCentered =
+		qAbs(current.x() - centered.x()) <= 96 &&
+		qAbs(current.y() - centered.y()) <= 128;
+	if (!looksDefaultCentered)
+		return;
+
+	const int margin = 24;
+	const int x = clampedCoord(
+		screen.left() + (screen.width() - frame.width()) / 2,
+		screen.left() + margin,
+		qMax(screen.left() + margin,
+		     screen.right() - frame.width() - margin + 1));
+	const int y = screen.top() + margin;
+	dock->move(x, y);
 }
 
 void TeleprompterDock::setEditorOpen(bool open, bool persist)

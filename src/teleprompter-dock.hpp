@@ -67,6 +67,7 @@ private:
 	void setEditorOpen(bool open, bool persist);
 	void setSettingsOpen(bool open, bool persist);
 	void showToolWindow(QWidget *window, const QSize &fallbackSize);
+	void applyDefaultFloatingDockPlacement();
 
 	// settings + persistence
 	void loadSettings();
