@@ -129,11 +129,44 @@ QIcon makeTransportIcon(TransportIcon icon)
 // defaults (48px font, 1.5 line-height) yield the historical ~60 px/s baseline
 // (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
 constexpr double kLinesPerSec = 0.83333;
-constexpr int kFloatingPlacementVersion = 1;
+constexpr int kFloatingPlacementVersion = 2;
 constexpr int kEndStopCountdownSeconds = 5;
 double fontBaseSpeed(int fontPx, double lineHeight)
 {
 	return double(fontPx) * lineHeight * kLinesPerSec;
+}
+
+QPoint topCenterForFrame(const QRect &frame, const QRect &screen)
+{
+	const int margin = 24;
+	const int x = clampedCoord(
+		screen.left() + (screen.width() - frame.width()) / 2,
+		screen.left() + margin,
+		qMax(screen.left() + margin,
+		     screen.right() - frame.width() - margin + 1));
+	return QPoint(x, screen.top() + margin);
+}
+
+bool isNearTopCenter(const QRect &frame, const QRect &screen)
+{
+	if (!frame.isValid() || !screen.isValid())
+		return false;
+	const QPoint target = topCenterForFrame(frame, screen);
+	const QPoint current = frame.topLeft();
+	return qAbs(current.x() - target.x()) <= 64 &&
+	       qAbs(current.y() - target.y()) <= 64;
+}
+
+bool looksDefaultCentered(const QRect &frame, const QRect &screen)
+{
+	if (!frame.isValid() || !screen.isValid())
+		return false;
+	const QPoint centered(screen.left() + (screen.width() - frame.width()) / 2,
+			      screen.top() +
+				      (screen.height() - frame.height()) / 2);
+	const QPoint current = frame.topLeft();
+	return qAbs(current.x() - centered.x()) <= 96 &&
+	       qAbs(current.y() - centered.y()) <= 128;
 }
 
 // Convert a "#rrggbb" palette colour + an alpha (0..1) into a Qt-stylesheet
@@ -372,14 +405,24 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	qApp->installEventFilter(this);
 
 	// OBS/Qt defaults a newly floating dock near the middle of the screen.
-	// Nudge only that default-looking first placement to top-center; saved/user
-	// geometry is left alone by the centered-position check below.
-	QTimer::singleShot(0, this,
-			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
-	QTimer::singleShot(250, this,
-			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
-	QTimer::singleShot(1000, this,
-			   &TeleprompterDock::applyDefaultFloatingDockPlacement);
+	// Nudge it to top-center, but only mark the migration complete after a
+	// later check observes it still there. That lets delayed OBS geometry
+	// restore lose to our later retries instead of permanently suppressing them.
+	QTimer::singleShot(0, this, [this]() {
+		applyDefaultFloatingDockPlacement(false);
+	});
+	QTimer::singleShot(250, this, [this]() {
+		applyDefaultFloatingDockPlacement(false);
+	});
+	QTimer::singleShot(1000, this, [this]() {
+		applyDefaultFloatingDockPlacement(false);
+	});
+	QTimer::singleShot(2500, this, [this]() {
+		applyDefaultFloatingDockPlacement(false);
+	});
+	QTimer::singleShot(5000, this, [this]() {
+		applyDefaultFloatingDockPlacement(true);
+	});
 }
 
 TeleprompterDock::~TeleprompterDock()
@@ -466,9 +509,9 @@ void TeleprompterDock::buildUi()
 	root->addWidget(bar);
 
 	// ── settings popup window ──
-	const Qt::WindowFlags popupFlags = Qt::Window | Qt::WindowTitleHint |
-					  Qt::WindowCloseButtonHint;
-	m_settingsPanel = new QFrame(this, popupFlags);
+	const Qt::WindowFlags settingsPopupFlags =
+		Qt::Window | Qt::WindowTitleHint | Qt::WindowCloseButtonHint;
+	m_settingsPanel = new QFrame(this, settingsPopupFlags);
 	m_settingsPanel->setObjectName("panel");
 	m_settingsPanel->setWindowTitle(QStringLiteral("Teleprompter Settings"));
 	m_settingsPanel->setAttribute(Qt::WA_QuitOnClose, false);
@@ -582,7 +625,12 @@ void TeleprompterDock::buildUi()
 	m_settingsPanel->resize(400, 560);
 
 	// ── script editor popup window ──
-	m_editorPanel = new QFrame(this, popupFlags);
+	// Keep Script on the Qt::Tool path that was known to appear on the
+	// operator desktop; Settings stays Qt::Window because that fixed its
+	// visibility in the latest test build.
+	const Qt::WindowFlags scriptPopupFlags =
+		Qt::Tool | Qt::WindowTitleHint | Qt::WindowCloseButtonHint;
+	m_editorPanel = new QFrame(this, scriptPopupFlags);
 	m_editorPanel->setObjectName("panel");
 	m_editorPanel->setWindowTitle(QStringLiteral("Teleprompter Script"));
 	m_editorPanel->setAttribute(Qt::WA_QuitOnClose, false);
@@ -736,7 +784,7 @@ void TeleprompterDock::showToolWindow(QWidget *window, const QSize &fallbackSize
 	window->activateWindow();
 }
 
-void TeleprompterDock::applyDefaultFloatingDockPlacement()
+void TeleprompterDock::applyDefaultFloatingDockPlacement(bool allowConfirm)
 {
 	QDockWidget *dock = hostingDockWidget(this);
 	if (!dock || !dock->isFloating() || !dock->isVisible())
@@ -747,22 +795,32 @@ void TeleprompterDock::applyDefaultFloatingDockPlacement()
 	if (!frame.isValid() || !screen.isValid())
 		return;
 
+	const bool alreadyTop = isNearTopCenter(frame, screen);
 	if (m_floatingPlacementVersion >= kFloatingPlacementVersion)
 		return;
 
-	const int margin = 24;
-	const int x = clampedCoord(
-		screen.left() + (screen.width() - frame.width()) / 2,
-		screen.left() + margin,
-		qMax(screen.left() + margin,
-		     screen.right() - frame.width() - margin + 1));
-	const int y = screen.top() + margin;
-	dock->move(x, y);
-	m_floatingPlacementVersion = kFloatingPlacementVersion;
-	saveSettings();
+	if (alreadyTop) {
+		if (allowConfirm) {
+			m_floatingPlacementVersion = kFloatingPlacementVersion;
+			saveSettings();
+			blog(LOG_INFO,
+			     "[obs-teleprompter] confirmed floating dock top-center placement on migration %d",
+			     kFloatingPlacementVersion);
+		}
+		return;
+	}
+
+	const bool repairPriorMigration =
+		m_floatingPlacementVersion > 0 &&
+		m_floatingPlacementVersion < kFloatingPlacementVersion;
+	if (!repairPriorMigration && !looksDefaultCentered(frame, screen))
+		return;
+
+	const QPoint target = topCenterForFrame(frame, screen);
+	dock->move(target);
 	blog(LOG_INFO,
-	     "[obs-teleprompter] moved floating dock to top-center (%d,%d) on placement migration %d",
-	     x, y, kFloatingPlacementVersion);
+	     "[obs-teleprompter] moving floating dock toward top-center (%d,%d) on placement migration %d",
+	     target.x(), target.y(), kFloatingPlacementVersion);
 }
 
 void TeleprompterDock::setEditorOpen(bool open, bool persist)
