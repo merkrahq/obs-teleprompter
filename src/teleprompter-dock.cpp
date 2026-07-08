@@ -49,7 +49,12 @@ const char *kPanel2 = "#1b2027";
 const char *kBorder = "#2a323c";
 const char *kText = "#f2f5f8";
 const char *kMuted = "#8a97a6";
-const char *kAccent = "#3ea6ff";
+// White-only UI (TODO 00008.b): every control accent is white/neutral — no
+// blue anywhere. kAccent was the old #3ea6ff blue; repointing it to the bright
+// text white turns the value readouts, slider handles, hover/active borders and
+// the centre-guide line/carets white in one place. The recording indicator
+// (kBad, a status signal not a control) keeps its own colour.
+const char *kAccent = "#f2f5f8";
 const char *kBad = "#ff5b5b";
 
 TeleprompterDock *g_instance = nullptr;
@@ -436,7 +441,7 @@ void TeleprompterDock::buildUi()
 		row->addWidget(m_lineVal);
 		setLay->addLayout(row);
 		m_lineSlider = new QSlider(Qt::Horizontal);
-		m_lineSlider->setRange(100, 300); // /100 → 1.0–3.0
+		m_lineSlider->setRange(50, 300); // /100 → 0.50–3.0 (00008.a)
 		m_lineSlider->setSingleStep(5);
 		setLay->addWidget(m_lineSlider);
 	}
@@ -564,7 +569,8 @@ void TeleprompterDock::applyStyle()
 			"  border-radius:6px; padding:5px 8px; }"
 			"QComboBox QAbstractItemView {"
 			"  background:%6; color:%3;"
-			"  selection-background-color:%5; }"
+			// neutral (not %5=white) so selected text stays legible
+			"  selection-background-color:%7; }"
 			"QCheckBox { color:%3; font-size:13px; }"
 			"QFrame[frameShape=\"4\"] { color:%7; }" // HLine
 			"QSlider::groove:horizontal {"
