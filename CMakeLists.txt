@@ -12,7 +12,11 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # self-contained CMakeLists. The source is already cross-platform; only the
 # per-OS install destinations and packaging differ.
 
-project(obs-teleprompter VERSION 0.1.0)
+# Bump this on every build the operator will test/install so the OBS log line
+# "[obs-teleprompter] loaded (version X.Y.Z)" self-identifies which build is
+# actually loaded — the version had been stuck at 0.1.0 across all releases,
+# which made a stale/duplicate DLL indistinguishable from a fresh one in the log.
+project(obs-teleprompter VERSION 0.1.6)
 
 option(ENABLE_FRONTEND_API "Use the OBS frontend API (required for the dock)" ON)
 option(ENABLE_QT "Use Qt functionality (required for the dock)" ON)
