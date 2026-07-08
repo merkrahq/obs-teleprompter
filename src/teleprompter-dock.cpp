@@ -730,7 +730,8 @@ void TeleprompterDock::showToolWindow(QWidget *window, const QSize &fallbackSize
 		     window->windowTitle().toUtf8().constData(), x, y,
 		     popupSize.width(), popupSize.height());
 	}
-	window->show();
+	window->setWindowState(window->windowState() & ~Qt::WindowMinimized);
+	window->showNormal();
 	window->raise();
 	window->activateWindow();
 }
@@ -803,10 +804,12 @@ void TeleprompterDock::wireSignals()
 		&TeleprompterDock::resetScroll);
 
 	connect(m_scriptToggle, &QPushButton::clicked, this, [this]() {
-		setEditorOpen(!m_editorOpen, true);
+		const bool visible = m_editorPanel && m_editorPanel->isVisible();
+		setEditorOpen(!visible, true);
 	});
 	connect(m_settingsToggle, &QPushButton::clicked, this, [this]() {
-		setSettingsOpen(!m_settingsOpen, true);
+		const bool visible = m_settingsPanel && m_settingsPanel->isVisible();
+		setSettingsOpen(!visible, true);
 	});
 
 	connect(m_editor, &QPlainTextEdit::textChanged, this, [this]() {
