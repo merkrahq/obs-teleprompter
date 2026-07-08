@@ -22,14 +22,16 @@
 #include <QFontMetrics>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
-#include <QMainWindow>
 #include <QPainter>
+#include <QPen>
 #include <QPlainTextEdit>
-#include <QPointer>
+#include <QPixmap>
+#include <QPolygonF>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
@@ -59,22 +61,42 @@ const char *kMuted = "#8a97a6";
 const char *kAccent = "#f2f5f8";
 const char *kBad = "#ff5b5b";
 
-// Transport glyphs that are GUARANTEED monochrome (TODO 00008.b round 2): the
-// obvious ⏸ (U+23F8) / ⏹ (U+23F9) have emoji presentation and render as colour
-// emoji on Windows regardless of the stylesheet colour — and the U+FE0E
-// text-variation-selector did NOT override that on the operator's box. These
-// geometric shapes have no colour-emoji form, so they always draw as plain
-// white text: ▮▮ (two U+25AE black vertical rectangles) for Pause, ■ (U+25A0
-// black square) for Stop. See GO-012.
-// ‖ (U+2016 DOUBLE VERTICAL LINE) is a single NARROW text glyph that reads as
-// "pause" and matches the other icons' width — the earlier ❚❚ (U+275A ×2) was
-// far too wide, and ▮▮ (U+25AE) sat misaligned. ■ (U+25A0) is the stop square.
-// Both are text-presentation (no colour-emoji form) so they render white.
-// See GO-012.
-const QString kPauseGlyph = QStringLiteral("‖"); // ‖
-const QString kStopGlyph = QStringLiteral("■");       // ■
-
 TeleprompterDock *g_instance = nullptr;
+
+enum class TransportIcon { Play, Pause, Stop, Reset };
+
+QIcon makeTransportIcon(TransportIcon icon)
+{
+	QPixmap pixmap(18, 18);
+	pixmap.fill(Qt::transparent);
+
+	QPainter p(&pixmap);
+	p.setRenderHint(QPainter::Antialiasing, true);
+	p.setBrush(QColor(kText));
+
+	if (icon == TransportIcon::Play) {
+		p.setPen(Qt::NoPen);
+		p.drawPolygon(QPolygonF({QPointF(6, 4), QPointF(14, 9),
+					 QPointF(6, 14)}));
+	} else if (icon == TransportIcon::Pause) {
+		p.setPen(Qt::NoPen);
+		p.drawRoundedRect(QRectF(5, 4, 3.5, 10), 1.2, 1.2);
+		p.drawRoundedRect(QRectF(10, 4, 3.5, 10), 1.2, 1.2);
+	} else if (icon == TransportIcon::Stop) {
+		p.setPen(Qt::NoPen);
+		p.drawRoundedRect(QRectF(5, 5, 8, 8), 1.0, 1.0);
+	} else {
+		QPen pen(QColor(kText), 2.0, Qt::SolidLine, Qt::RoundCap,
+			 Qt::RoundJoin);
+		p.setPen(pen);
+		p.setBrush(Qt::NoBrush);
+		p.drawArc(QRectF(4, 4, 10, 10), 30 * 16, 285 * 16);
+		p.drawLine(QPointF(4.8, 5.5), QPointF(4.8, 2.4));
+		p.drawLine(QPointF(4.8, 5.5), QPointF(7.9, 5.5));
+	}
+
+	return QIcon(pixmap);
+}
 
 // Font-derived baseline scroll speed. We hold LINES PER SECOND constant so the
 // perceived reading cadence stays roughly the same across font sizes: a smaller
@@ -299,10 +321,8 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_countdownCombo->setCurrentIndex(
 		m_countdownCombo->findData(m_countdownLen));
 	m_guideCheck->setChecked(m_guide);
-	m_settingsPanel->setVisible(m_settingsOpen);
-	m_editorPanel->setVisible(m_editorOpen);
-	m_settingsToggle->setProperty("active", m_settingsOpen);
-	m_scriptToggle->setProperty("active", m_editorOpen);
+	setSettingsOpen(m_settingsOpen, false);
+	setEditorOpen(m_editorOpen, false);
 
 	m_fontVal->setText(QString::number(m_fontSize) + "px");
 	m_lineVal->setText(QString::number(m_lineHeight, 'f', 2));
@@ -326,6 +346,11 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 TeleprompterDock::~TeleprompterDock()
 {
 	saveSettingsNow();
+	qApp->removeEventFilter(this);
+	if (m_editorPanel)
+		m_editorPanel->hide();
+	if (m_settingsPanel)
+		m_settingsPanel->hide();
 	if (m_frameClock) {
 		delete m_frameClock;
 		m_frameClock = nullptr;
@@ -340,15 +365,10 @@ static QPushButton *mkButton(const QString &text, const QString &tip)
 	auto *b = new QPushButton(text);
 	b->setToolTip(tip);
 	b->setCursor(Qt::PointingHandCursor);
+	b->setIconSize(QSize(16, 16));
+	b->setMinimumHeight(34);
+	b->setMinimumWidth(82);
 	return b;
-}
-
-static QFrame *hline()
-{
-	auto *f = new QFrame();
-	f->setFrameShape(QFrame::HLine);
-	f->setFrameShadow(QFrame::Plain);
-	return f;
 }
 
 void TeleprompterDock::buildUi()
@@ -377,30 +397,25 @@ void TeleprompterDock::buildUi()
 	barLay->setContentsMargins(8, 8, 8, 8);
 	barLay->setSpacing(6);
 
-	// Transport controls are uniform WHITE-icon buttons (TODO 00006.a): no
-	// colored play/pause/stop fills — a clean, minimal look. Toggle/active
-	// state is shown with a subtle neutral fill (see applyStyle), not colour.
-	// NOTE (TODO 00008.b, round 2): ⏸ (U+23F8) and ⏹ (U+23F9) default to EMOJI
-	// presentation, so Windows paints them as full-colour (blue-ish) emoji
-	// regardless of the stylesheet `color`. The text-variation-selector U+FE0E
-	// trick did NOT force monochrome on the operator's Windows/Segoe UI Emoji,
-	// so we now use GEOMETRIC-shape glyphs that have NO colour-emoji form at all
-	// (kPauseGlyph = ▮▮ two black vertical rectangles, kStopGlyph = ■ black
-	// square) — these always render as plain monochrome text and obey the white
-	// colour. ▶ (U+25B6) / ⟲ / ✎ / ⚙ are already text-default (not reported
-	// blue), left as-is.
-	m_startBtn = mkButton(QStringLiteral("▶ Start"),
+	// Transport controls use painted QIcons with a fixed iconSize (TODO 00008
+	// item #6). This avoids Windows font/emoji glyph metrics entirely; the pause
+	// bars now have the same stable 16x16 box as neighbouring transport icons.
+	m_startBtn = mkButton(QStringLiteral("Start"),
 			      QStringLiteral("Start (Ctrl+Enter)"));
-	m_pauseBtn = mkButton(kPauseGlyph + QStringLiteral(" Pause"),
+	m_startBtn->setIcon(makeTransportIcon(TransportIcon::Play));
+	m_pauseBtn = mkButton(QStringLiteral("Pause"),
 			      QStringLiteral("Pause / Resume (Space)"));
-	m_stopBtn = mkButton(kStopGlyph + QStringLiteral(" Stop"),
+	m_pauseBtn->setIcon(makeTransportIcon(TransportIcon::Pause));
+	m_stopBtn = mkButton(QStringLiteral("Stop"),
 			     QStringLiteral("Stop (Esc)"));
-	m_resetBtn = mkButton(QStringLiteral("⟲ Reset"),
+	m_stopBtn->setIcon(makeTransportIcon(TransportIcon::Stop));
+	m_resetBtn = mkButton(QStringLiteral("Reset"),
 			      QStringLiteral("Reset to top"));
+	m_resetBtn->setIcon(makeTransportIcon(TransportIcon::Reset));
 	m_scriptToggle = mkButton(QStringLiteral("✎ Script"),
-				  QStringLiteral("Show/hide script editor"));
+				  QStringLiteral("Open script editor"));
 	m_settingsToggle = mkButton(QStringLiteral("⚙ Settings"),
-				    QStringLiteral("Show/hide settings"));
+				    QStringLiteral("Open settings"));
 
 	barLay->addWidget(m_startBtn);
 	barLay->addWidget(m_pauseBtn);
@@ -411,9 +426,14 @@ void TeleprompterDock::buildUi()
 	barLay->addWidget(m_settingsToggle);
 	root->addWidget(bar);
 
-	// ── settings panel ──
-	m_settingsPanel = new QFrame();
+	// ── settings tool window ──
+	const Qt::WindowFlags popupFlags = Qt::Tool | Qt::WindowTitleHint |
+					  Qt::WindowCloseButtonHint;
+	m_settingsPanel = new QFrame(this, popupFlags);
 	m_settingsPanel->setObjectName("panel");
+	m_settingsPanel->setWindowTitle(QStringLiteral("Teleprompter Settings"));
+	m_settingsPanel->setAttribute(Qt::WA_QuitOnClose, false);
+	m_settingsPanel->installEventFilter(this);
 	auto *setLay = new QVBoxLayout(m_settingsPanel);
 	setLay->setContentsMargins(10, 10, 10, 10);
 	setLay->setSpacing(10);
@@ -514,21 +534,23 @@ void TeleprompterDock::buildUi()
 		setLay->addWidget(m_readTime);
 	}
 	m_settingsPanel->setVisible(false);
-	root->addWidget(m_settingsPanel);
-	root->addWidget(hline());
+	m_settingsPanel->resize(380, 520);
 
-	// ── script editor panel ──
-	m_editorPanel = new QFrame();
+	// ── script editor tool window ──
+	m_editorPanel = new QFrame(this, popupFlags);
 	m_editorPanel->setObjectName("panel");
+	m_editorPanel->setWindowTitle(QStringLiteral("Teleprompter Script"));
+	m_editorPanel->setAttribute(Qt::WA_QuitOnClose, false);
+	m_editorPanel->installEventFilter(this);
 	auto *edLay = new QVBoxLayout(m_editorPanel);
 	edLay->setContentsMargins(10, 10, 10, 10);
 	m_editor = new QPlainTextEdit();
 	m_editor->setPlaceholderText(
-		QStringLiteral("Paste or type your script here…"));
+		QStringLiteral("Paste or type your script here..."));
 	m_editor->setMinimumHeight(120);
 	edLay->addWidget(m_editor);
 	m_editorPanel->setVisible(false);
-	root->addWidget(m_editorPanel);
+	m_editorPanel->resize(560, 360);
 
 	// ── status bar ──
 	auto *status = new QWidget();
@@ -622,6 +644,59 @@ void TeleprompterDock::applyStyle()
 			.arg(QLatin1String(kBorder)));
 }
 
+void TeleprompterDock::setButtonActive(QPushButton *button, bool active)
+{
+	if (!button)
+		return;
+	button->setProperty("active", active);
+	button->style()->unpolish(button);
+	button->style()->polish(button);
+}
+
+void TeleprompterDock::showToolWindow(QWidget *window, const QSize &fallbackSize)
+{
+	if (!window)
+		return;
+	if (window->size().isEmpty())
+		window->resize(fallbackSize);
+	if (!window->isVisible()) {
+		const QPoint pos =
+			mapToGlobal(QPoint(qMax(0, width() - window->width()),
+					   height() + 8));
+		window->move(pos);
+	}
+	window->show();
+	window->raise();
+	window->activateWindow();
+}
+
+void TeleprompterDock::setEditorOpen(bool open, bool persist)
+{
+	m_editorOpen = open;
+	if (open) {
+		showToolWindow(m_editorPanel, QSize(560, 360));
+		if (m_editor)
+			m_editor->setFocus();
+	} else if (m_editorPanel) {
+		m_editorPanel->hide();
+	}
+	setButtonActive(m_scriptToggle, open);
+	if (persist)
+		saveSettings();
+}
+
+void TeleprompterDock::setSettingsOpen(bool open, bool persist)
+{
+	m_settingsOpen = open;
+	if (open)
+		showToolWindow(m_settingsPanel, QSize(380, 520));
+	else if (m_settingsPanel)
+		m_settingsPanel->hide();
+	setButtonActive(m_settingsToggle, open);
+	if (persist)
+		saveSettings();
+}
+
 void TeleprompterDock::wireSignals()
 {
 	connect(m_startBtn, &QPushButton::clicked, this,
@@ -634,26 +709,10 @@ void TeleprompterDock::wireSignals()
 		&TeleprompterDock::resetScroll);
 
 	connect(m_scriptToggle, &QPushButton::clicked, this, [this]() {
-		m_editorOpen = !m_editorOpen;
-		m_editorPanel->setVisible(m_editorOpen);
-		m_scriptToggle->setProperty("active", m_editorOpen);
-		m_scriptToggle->style()->unpolish(m_scriptToggle);
-		m_scriptToggle->style()->polish(m_scriptToggle);
-		if (m_editorOpen)
-			m_editor->setFocus();
-		else
-			shrinkDockToFit();  // reclaim the panel's space
-		saveSettings();
+		setEditorOpen(!m_editorOpen, true);
 	});
 	connect(m_settingsToggle, &QPushButton::clicked, this, [this]() {
-		m_settingsOpen = !m_settingsOpen;
-		m_settingsPanel->setVisible(m_settingsOpen);
-		m_settingsToggle->setProperty("active", m_settingsOpen);
-		m_settingsToggle->style()->unpolish(m_settingsToggle);
-		m_settingsToggle->style()->polish(m_settingsToggle);
-		if (!m_settingsOpen)
-			shrinkDockToFit();  // reclaim the panel's space
-		saveSettings();
+		setSettingsOpen(!m_settingsOpen, true);
 	});
 
 	connect(m_editor, &QPlainTextEdit::textChanged, this, [this]() {
@@ -990,11 +1049,11 @@ void TeleprompterDock::pauseResume()
 	m_paused = !m_paused;
 	if (!m_paused)
 		m_frameClock->restart();
-	m_pauseBtn->setText(m_paused ? QStringLiteral("▶ Resume")
-				     : kPauseGlyph + QStringLiteral(" Pause"));
-	m_pauseBtn->setProperty("active", m_paused);
-	m_pauseBtn->style()->unpolish(m_pauseBtn);
-	m_pauseBtn->style()->polish(m_pauseBtn);
+	m_pauseBtn->setText(m_paused ? QStringLiteral("Resume")
+				     : QStringLiteral("Pause"));
+	m_pauseBtn->setIcon(makeTransportIcon(m_paused ? TransportIcon::Play
+						       : TransportIcon::Pause));
+	setButtonActive(m_pauseBtn, m_paused);
 }
 
 void TeleprompterDock::stopAll(const char *reason)
@@ -1073,10 +1132,9 @@ void TeleprompterDock::setControls(Mode mode)
 	m_pauseBtn->setEnabled(running);
 	m_stopBtn->setEnabled(busy);
 	if (mode == Mode::Idle) {
-		m_pauseBtn->setText(kPauseGlyph + QStringLiteral(" Pause"));
-		m_pauseBtn->setProperty("active", false);
-		m_pauseBtn->style()->unpolish(m_pauseBtn);
-		m_pauseBtn->style()->polish(m_pauseBtn);
+		m_pauseBtn->setText(QStringLiteral("Pause"));
+		m_pauseBtn->setIcon(makeTransportIcon(TransportIcon::Pause));
+		setButtonActive(m_pauseBtn, false);
 	}
 }
 
@@ -1091,69 +1149,6 @@ void TeleprompterDock::setRecordingIndicator(bool on)
 			       : QStringLiteral("Not recording"));
 }
 
-void TeleprompterDock::shrinkDockToFit()
-{
-	// Walk up to the hosting QDockWidget (OBS wraps our widget in one).
-	QWidget *w = parentWidget();
-	QDockWidget *dock = nullptr;
-	while (w) {
-		if (!dock)
-			dock = qobject_cast<QDockWidget *>(w);
-		w = w->parentWidget();
-	}
-	if (!dock)
-		return;
-
-	// A dock keeps its grown height when a child panel is hidden, so closing
-	// a panel leaves dead space. Handle BOTH states (the operator runs the
-	// dock FLOATING — round-2 wrongly skipped that case):
-	//   • Floating → the dock is a top-level window; resize() it directly
-	//     down to the reduced content height (keep its current width).
-	//   • Docked   → QMainWindow won't shrink a dock on its own; use the
-	//     purpose-built QMainWindow::resizeDocks() to drive its height.
-	// Defer one event-loop turn so the just-hidden panel has left the layout
-	// and sizeHint() reflects the reduced content before we resize.
-	QPointer<TeleprompterDock> self(this);
-	QPointer<QDockWidget> guardDock(dock);
-	QTimer::singleShot(0, this, [self, guardDock]() {
-		if (!self || !guardDock)
-			return;
-		if (self->layout())
-			self->layout()->activate();
-		QDockWidget *d = guardDock;
-
-		// The prompter stage has an EXPANDING vertical policy, so it grows
-		// to fill whatever height the window has — a plain resize() snaps
-		// straight back. Transiently CAP the stage at its minimum height so
-		// the window can actually collapse to the controls/bars, resize,
-		// then release the cap on the next turn so the stage can grow again
-		// to fill the (now smaller) window.
-		const int stageCap = self->m_stage ? self->m_stage->minimumHeight()
-						   : 0;
-		if (self->m_stage && stageCap > 0)
-			self->m_stage->setMaximumHeight(stageCap);
-		if (self->layout())
-			self->layout()->activate();
-
-		const int target = d->sizeHint().height();
-		if (target > 0) {
-			if (d->isFloating())
-				d->resize(d->width(), target);
-			else if (auto *mainWin = qobject_cast<QMainWindow *>(
-					 d->parentWidget()))
-				mainWin->resizeDocks({d}, {target},
-						     Qt::Vertical);
-		}
-
-		// Release the stage cap so it fills the resized window again.
-		QPointer<TeleprompterDock> s2(self);
-		QTimer::singleShot(0, self, [s2]() {
-			if (s2 && s2->m_stage)
-				s2->m_stage->setMaximumHeight(QWIDGETSIZE_MAX);
-		});
-	});
-}
-
 void TeleprompterDock::flashStatus(const QString &text)
 {
 	m_statusMsg->setText(text);
@@ -1163,15 +1158,35 @@ void TeleprompterDock::flashStatus(const QString &text)
 // ── keyboard shortcuts ──────────────────────────────────────────────────────
 bool TeleprompterDock::eventFilter(QObject *obj, QEvent *ev)
 {
+	if (ev->type() == QEvent::Close) {
+		if (obj == m_editorPanel) {
+			m_editorOpen = false;
+			setButtonActive(m_scriptToggle, false);
+			saveSettings();
+		} else if (obj == m_settingsPanel) {
+			m_settingsOpen = false;
+			setButtonActive(m_settingsToggle, false);
+			saveSettings();
+		}
+		return QWidget::eventFilter(obj, ev);
+	}
+
 	if (ev->type() != QEvent::KeyPress)
 		return QWidget::eventFilter(obj, ev);
 
 	// Only act when the keyboard focus is inside this dock, so we don't
 	// hijack keys meant for the rest of OBS.
 	QWidget *focus = qApp->focusWidget();
-	const bool focusInDock =
+	const bool focusInMainDock =
 		isVisible() && focus && (focus == this || isAncestorOf(focus));
-	if (!focusInDock)
+	const bool focusInScript =
+		m_editorPanel && m_editorPanel->isVisible() && focus &&
+		(focus == m_editorPanel || m_editorPanel->isAncestorOf(focus));
+	const bool focusInSettings =
+		m_settingsPanel && m_settingsPanel->isVisible() && focus &&
+		(focus == m_settingsPanel ||
+		 m_settingsPanel->isAncestorOf(focus));
+	if (!focusInMainDock && !focusInScript && !focusInSettings)
 		return QWidget::eventFilter(obj, ev);
 
 	auto *ke = static_cast<QKeyEvent *>(ev);
