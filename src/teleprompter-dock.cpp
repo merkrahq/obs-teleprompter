@@ -66,12 +66,13 @@ const char *kBad = "#ff5b5b";
 // geometric shapes have no colour-emoji form, so they always draw as plain
 // white text: ▮▮ (two U+25AE black vertical rectangles) for Pause, ■ (U+25A0
 // black square) for Stop. See GO-012.
-// ❚❚ (U+275A HEAVY VERTICAL BAR ×2) aligns to the text baseline/height far
-// better than the full-height ▮ (U+25AE) did, and ■ (U+25A0) is the standard
-// stop square — both are text-presentation (no colour-emoji form), so they
-// always render white. See GO-012.
-const QString kPauseGlyph = QStringLiteral("❚❚"); // ❚❚
-const QString kStopGlyph = QStringLiteral("■");        // ■
+// ‖ (U+2016 DOUBLE VERTICAL LINE) is a single NARROW text glyph that reads as
+// "pause" and matches the other icons' width — the earlier ❚❚ (U+275A ×2) was
+// far too wide, and ▮▮ (U+25AE) sat misaligned. ■ (U+25A0) is the stop square.
+// Both are text-presentation (no colour-emoji form) so they render white.
+// See GO-012.
+const QString kPauseGlyph = QStringLiteral("‖"); // ‖
+const QString kStopGlyph = QStringLiteral("■");       // ■
 
 TeleprompterDock *g_instance = nullptr;
 
@@ -1120,15 +1121,36 @@ void TeleprompterDock::shrinkDockToFit()
 		if (self->layout())
 			self->layout()->activate();
 		QDockWidget *d = guardDock;
+
+		// The prompter stage has an EXPANDING vertical policy, so it grows
+		// to fill whatever height the window has — a plain resize() snaps
+		// straight back. Transiently CAP the stage at its minimum height so
+		// the window can actually collapse to the controls/bars, resize,
+		// then release the cap on the next turn so the stage can grow again
+		// to fill the (now smaller) window.
+		const int stageCap = self->m_stage ? self->m_stage->minimumHeight()
+						   : 0;
+		if (self->m_stage && stageCap > 0)
+			self->m_stage->setMaximumHeight(stageCap);
+		if (self->layout())
+			self->layout()->activate();
+
 		const int target = d->sizeHint().height();
-		if (target <= 0)
-			return;
-		if (d->isFloating()) {
-			d->resize(d->width(), target);
-		} else if (auto *mainWin = qobject_cast<QMainWindow *>(
-				   d->parentWidget())) {
-			mainWin->resizeDocks({d}, {target}, Qt::Vertical);
+		if (target > 0) {
+			if (d->isFloating())
+				d->resize(d->width(), target);
+			else if (auto *mainWin = qobject_cast<QMainWindow *>(
+					 d->parentWidget()))
+				mainWin->resizeDocks({d}, {target},
+						     Qt::Vertical);
 		}
+
+		// Release the stage cap so it fills the resized window again.
+		QPointer<TeleprompterDock> s2(self);
+		QTimer::singleShot(0, self, [s2]() {
+			if (s2 && s2->m_stage)
+				s2->m_stage->setMaximumHeight(QWIDGETSIZE_MAX);
+		});
 	});
 }
 
