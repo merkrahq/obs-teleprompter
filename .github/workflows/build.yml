@@ -447,6 +447,10 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          # A hyphenated tag (e.g. v0.1.5-test, v0.2.0-rc1) publishes as a
+          # PRE-RELEASE so it does not become "Latest"; a plain vX.Y.Z tag
+          # publishes as a normal release (auto-"Latest").
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             Native OBS teleprompter dock — per-OS installers **and** drag-into-OBS
             portable folders.
