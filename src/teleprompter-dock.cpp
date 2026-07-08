@@ -26,6 +26,7 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMainWindow>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -58,10 +59,15 @@ const char *kMuted = "#8a97a6";
 const char *kAccent = "#f2f5f8";
 const char *kBad = "#ff5b5b";
 
-// Text-presentation variation selector (U+FE0E): appended to emoji-default
-// glyphs (⏸ ⏹ ⚙) to force monochrome rendering so they obey the white text
-// colour instead of showing as coloured emoji (TODO 00008.b follow-up).
-const QChar kTextVS(0xFE0E);
+// Transport glyphs that are GUARANTEED monochrome (TODO 00008.b round 2): the
+// obvious ⏸ (U+23F8) / ⏹ (U+23F9) have emoji presentation and render as colour
+// emoji on Windows regardless of the stylesheet colour — and the U+FE0E
+// text-variation-selector did NOT override that on the operator's box. These
+// geometric shapes have no colour-emoji form, so they always draw as plain
+// white text: ▮▮ (two U+25AE black vertical rectangles) for Pause, ■ (U+25A0
+// black square) for Stop. See GO-012.
+const QString kPauseGlyph = QStringLiteral("▮▮"); // ▮▮
+const QString kStopGlyph = QStringLiteral("■");        // ■
 
 TeleprompterDock *g_instance = nullptr;
 
@@ -369,22 +375,26 @@ void TeleprompterDock::buildUi()
 	// Transport controls are uniform WHITE-icon buttons (TODO 00006.a): no
 	// colored play/pause/stop fills — a clean, minimal look. Toggle/active
 	// state is shown with a subtle neutral fill (see applyStyle), not colour.
-	// NOTE (TODO 00008.b follow-up): ⏸ (U+23F8), ⏹ (U+23F9) and ⚙ (U+2699)
-	// default to EMOJI presentation, so Windows paints them as full-colour
-	// (blue-ish) emoji regardless of the stylesheet `color`. Appending the
-	// text-presentation variation selector U+FE0E (kTextVS) forces monochrome
-	// glyphs that obey the white text colour. ▶/⟲/✎ are text-default already.
+	// NOTE (TODO 00008.b, round 2): ⏸ (U+23F8) and ⏹ (U+23F9) default to EMOJI
+	// presentation, so Windows paints them as full-colour (blue-ish) emoji
+	// regardless of the stylesheet `color`. The text-variation-selector U+FE0E
+	// trick did NOT force monochrome on the operator's Windows/Segoe UI Emoji,
+	// so we now use GEOMETRIC-shape glyphs that have NO colour-emoji form at all
+	// (kPauseGlyph = ▮▮ two black vertical rectangles, kStopGlyph = ■ black
+	// square) — these always render as plain monochrome text and obey the white
+	// colour. ▶ (U+25B6) / ⟲ / ✎ / ⚙ are already text-default (not reported
+	// blue), left as-is.
 	m_startBtn = mkButton(QStringLiteral("▶ Start"),
 			      QStringLiteral("Start (Ctrl+Enter)"));
-	m_pauseBtn = mkButton(QStringLiteral("⏸") + kTextVS + QStringLiteral(" Pause"),
+	m_pauseBtn = mkButton(kPauseGlyph + QStringLiteral(" Pause"),
 			      QStringLiteral("Pause / Resume (Space)"));
-	m_stopBtn = mkButton(QStringLiteral("⏹") + kTextVS + QStringLiteral(" Stop"),
+	m_stopBtn = mkButton(kStopGlyph + QStringLiteral(" Stop"),
 			     QStringLiteral("Stop (Esc)"));
 	m_resetBtn = mkButton(QStringLiteral("⟲ Reset"),
 			      QStringLiteral("Reset to top"));
 	m_scriptToggle = mkButton(QStringLiteral("✎ Script"),
 				  QStringLiteral("Show/hide script editor"));
-	m_settingsToggle = mkButton(QStringLiteral("⚙") + kTextVS + QStringLiteral(" Settings"),
+	m_settingsToggle = mkButton(QStringLiteral("⚙ Settings"),
 				    QStringLiteral("Show/hide settings"));
 
 	barLay->addWidget(m_startBtn);
@@ -976,8 +986,7 @@ void TeleprompterDock::pauseResume()
 	if (!m_paused)
 		m_frameClock->restart();
 	m_pauseBtn->setText(m_paused ? QStringLiteral("▶ Resume")
-				     : QStringLiteral("⏸") + kTextVS +
-					       QStringLiteral(" Pause"));
+				     : kPauseGlyph + QStringLiteral(" Pause"));
 	m_pauseBtn->setProperty("active", m_paused);
 	m_pauseBtn->style()->unpolish(m_pauseBtn);
 	m_pauseBtn->style()->polish(m_pauseBtn);
@@ -1059,8 +1068,7 @@ void TeleprompterDock::setControls(Mode mode)
 	m_pauseBtn->setEnabled(running);
 	m_stopBtn->setEnabled(busy);
 	if (mode == Mode::Idle) {
-		m_pauseBtn->setText(QStringLiteral("⏸") + kTextVS +
-				    QStringLiteral(" Pause"));
+		m_pauseBtn->setText(kPauseGlyph + QStringLiteral(" Pause"));
 		m_pauseBtn->setProperty("active", false);
 		m_pauseBtn->style()->unpolish(m_pauseBtn);
 		m_pauseBtn->style()->polish(m_pauseBtn);
@@ -1080,42 +1088,42 @@ void TeleprompterDock::setRecordingIndicator(bool on)
 
 void TeleprompterDock::shrinkDockToFit()
 {
-	// Walk up to the hosting QDockWidget (OBS wraps our widget in one).
+	// Walk up to the hosting QDockWidget and the QMainWindow that owns it
+	// (OBS wraps our widget in a QDockWidget inside its main window).
 	QWidget *w = parentWidget();
 	QDockWidget *dock = nullptr;
 	while (w) {
-		if ((dock = qobject_cast<QDockWidget *>(w)))
-			break;
+		if (!dock)
+			dock = qobject_cast<QDockWidget *>(w);
 		w = w->parentWidget();
 	}
 	if (!dock || dock->isFloating())
-		// Floating docks are freely user-resizable — leave them alone.
-		// (A floating window already shrinks to its layout on hide.)
+		// Floating docks are freely user-resizable and already shrink to
+		// their layout when a child hides — leave them alone.
+		return;
+	auto *mainWin = qobject_cast<QMainWindow *>(dock->parentWidget());
+	if (!mainWin)
 		return;
 
-	// A docked QDockWidget keeps its grown height when a child is hidden, so
-	// closing a panel leaves dead space. Qt only lets the dock area shrink a
-	// dock below its current size by briefly clamping its maximum, then
-	// releasing it. Defer to the next event-loop turn so the just-hidden
-	// panel has been removed from the layout and sizeHint() reflects it.
-	QPointer<QDockWidget> guard(dock);
-	QTimer::singleShot(0, dock, [guard]() {
-		if (!guard)
+	// A docked QDockWidget keeps its grown height when a child panel is
+	// hidden — QMainWindow won't shrink it on its own, so closing a panel
+	// leaves dead space. QMainWindow::resizeDocks() is the purpose-built API
+	// to drive a dock to a specific size. Defer to the next event-loop turn
+	// so the just-hidden panel has left the layout and layout()->sizeHint()
+	// reflects the reduced content, then ask the main window to resize the
+	// dock's HEIGHT down to that hint. (The earlier maximumHeight clamp/release
+	// approach did not work against OBS's dock manager — round 2.)
+	QPointer<QDockWidget> guardDock(dock);
+	QPointer<QMainWindow> guardWin(mainWin);
+	QTimer::singleShot(0, this, [this, guardDock, guardWin]() {
+		if (!guardDock || !guardWin)
 			return;
-		QDockWidget *d = guard;
-		const int target = d->widget() ? d->widget()->sizeHint().height()
-					       : d->sizeHint().height();
-		if (target <= 0)
-			return;
-		const int savedMax = d->maximumHeight();
-		d->setMaximumHeight(target);
-		// Release the clamp after the dock area has re-laid-out at the
-		// smaller size, so the user can still resize the dock afterwards.
-		QPointer<QDockWidget> g2(d);
-		QTimer::singleShot(0, d, [g2, savedMax]() {
-			if (g2)
-				g2->setMaximumHeight(savedMax);
-		});
+		if (layout())
+			layout()->activate();
+		const int target = sizeHint().height();
+		if (target > 0)
+			guardWin->resizeDocks({guardDock}, {target},
+					      Qt::Vertical);
 	});
 }
 
