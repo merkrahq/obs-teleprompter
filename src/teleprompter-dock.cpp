@@ -9,6 +9,7 @@
 #include "teleprompter-dock.hpp"
 
 #include <obs-frontend-api.h>
+#include <util/base.h>
 
 #include <QApplication>
 #include <QCheckBox>
@@ -128,6 +129,8 @@ QIcon makeTransportIcon(TransportIcon icon)
 // defaults (48px font, 1.5 line-height) yield the historical ~60 px/s baseline
 // (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
 constexpr double kLinesPerSec = 0.83333;
+constexpr int kFloatingPlacementVersion = 1;
+constexpr int kEndStopCountdownSeconds = 5;
 double fontBaseSpeed(int fontPx, double lineHeight)
 {
 	return double(fontPx) * lineHeight * kLinesPerSec;
@@ -346,6 +349,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 		m_countdownCombo->findData(m_countdownLen));
 	m_guideCheck->setChecked(m_guide);
 	m_autoRecordCheck->setChecked(m_autoRecord);
+	m_autoStopOnEndCheck->setChecked(m_autoStopOnEnd);
 	setSettingsOpen(m_settingsOpen, false);
 	setEditorOpen(m_editorOpen, false);
 
@@ -461,8 +465,8 @@ void TeleprompterDock::buildUi()
 	barLay->addWidget(m_settingsToggle);
 	root->addWidget(bar);
 
-	// ── settings tool window ──
-	const Qt::WindowFlags popupFlags = Qt::Tool | Qt::WindowTitleHint |
+	// ── settings popup window ──
+	const Qt::WindowFlags popupFlags = Qt::Window | Qt::WindowTitleHint |
 					  Qt::WindowCloseButtonHint;
 	m_settingsPanel = new QFrame(this, popupFlags);
 	m_settingsPanel->setObjectName("panel");
@@ -567,14 +571,17 @@ void TeleprompterDock::buildUi()
 		m_autoRecordCheck = new QCheckBox(
 			QStringLiteral("Auto-start OBS recording"));
 		setLay->addWidget(m_autoRecordCheck);
+		m_autoStopOnEndCheck = new QCheckBox(
+			QStringLiteral("Auto-stop OBS recording at script end"));
+		setLay->addWidget(m_autoStopOnEndCheck);
 		m_readTime = new QLabel(QStringLiteral("~0:00 reading time"));
 		m_readTime->setObjectName("sub");
 		setLay->addWidget(m_readTime);
 	}
 	m_settingsPanel->setVisible(false);
-	m_settingsPanel->resize(380, 520);
+	m_settingsPanel->resize(400, 560);
 
-	// ── script editor tool window ──
+	// ── script editor popup window ──
 	m_editorPanel = new QFrame(this, popupFlags);
 	m_editorPanel->setObjectName("panel");
 	m_editorPanel->setWindowTitle(QStringLiteral("Teleprompter Script"));
@@ -718,6 +725,10 @@ void TeleprompterDock::showToolWindow(QWidget *window, const QSize &fallbackSize
 		}
 		const QPoint pos(x, y);
 		window->move(pos);
+		blog(LOG_INFO,
+		     "[obs-teleprompter] showing popup '%s' at %d,%d size %dx%d",
+		     window->windowTitle().toUtf8().constData(), x, y,
+		     popupSize.width(), popupSize.height());
 	}
 	window->show();
 	window->raise();
@@ -735,13 +746,7 @@ void TeleprompterDock::applyDefaultFloatingDockPlacement()
 	if (!frame.isValid() || !screen.isValid())
 		return;
 
-	const QPoint centered(screen.left() + (screen.width() - frame.width()) / 2,
-			      screen.top() + (screen.height() - frame.height()) / 2);
-	const QPoint current = frame.topLeft();
-	const bool looksDefaultCentered =
-		qAbs(current.x() - centered.x()) <= 96 &&
-		qAbs(current.y() - centered.y()) <= 128;
-	if (!looksDefaultCentered)
+	if (m_floatingPlacementVersion >= kFloatingPlacementVersion)
 		return;
 
 	const int margin = 24;
@@ -752,6 +757,11 @@ void TeleprompterDock::applyDefaultFloatingDockPlacement()
 		     screen.right() - frame.width() - margin + 1));
 	const int y = screen.top() + margin;
 	dock->move(x, y);
+	m_floatingPlacementVersion = kFloatingPlacementVersion;
+	saveSettings();
+	blog(LOG_INFO,
+	     "[obs-teleprompter] moved floating dock to top-center (%d,%d) on placement migration %d",
+	     x, y, kFloatingPlacementVersion);
 }
 
 void TeleprompterDock::setEditorOpen(bool open, bool persist)
@@ -773,7 +783,7 @@ void TeleprompterDock::setSettingsOpen(bool open, bool persist)
 {
 	m_settingsOpen = open;
 	if (open)
-		showToolWindow(m_settingsPanel, QSize(380, 520));
+		showToolWindow(m_settingsPanel, QSize(400, 560));
 	else if (m_settingsPanel)
 		m_settingsPanel->hide();
 	setButtonActive(m_settingsToggle, open);
@@ -845,6 +855,11 @@ void TeleprompterDock::wireSignals()
 		m_autoRecord = on;
 		saveSettings();
 	});
+	connect(m_autoStopOnEndCheck, &QCheckBox::toggled, this,
+		[this](bool on) {
+			m_autoStopOnEnd = on;
+			saveSettings();
+		});
 }
 
 // ── settings persistence ────────────────────────────────────────────────────
@@ -893,10 +908,17 @@ void TeleprompterDock::loadSettings()
 		m_guide = o.value("guide").toBool(m_guide);
 	if (o.contains("autoRecord"))
 		m_autoRecord = o.value("autoRecord").toBool(m_autoRecord);
+	if (o.contains("autoStopOnEnd"))
+		m_autoStopOnEnd =
+			o.value("autoStopOnEnd").toBool(m_autoStopOnEnd);
 	if (o.contains("editorOpen"))
 		m_editorOpen = o.value("editorOpen").toBool(m_editorOpen);
 	if (o.contains("settingsOpen"))
 		m_settingsOpen = o.value("settingsOpen").toBool(m_settingsOpen);
+	if (o.contains("floatingPlacementVersion"))
+		m_floatingPlacementVersion =
+			o.value("floatingPlacementVersion")
+				.toInt(m_floatingPlacementVersion);
 }
 
 void TeleprompterDock::saveSettings()
@@ -924,8 +946,10 @@ void TeleprompterDock::saveSettingsNow()
 	o["countdownLen"] = m_countdownLen;
 	o["guide"] = m_guide;
 	o["autoRecord"] = m_autoRecord;
+	o["autoStopOnEnd"] = m_autoStopOnEnd;
 	o["editorOpen"] = m_editorOpen;
 	o["settingsOpen"] = m_settingsOpen;
+	o["floatingPlacementVersion"] = m_floatingPlacementVersion;
 
 	QFile f(settingsPath());
 	if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -1063,7 +1087,31 @@ void TeleprompterDock::beginScroll()
 
 void TeleprompterDock::finishScroll()
 {
-	stopAll("end of script");
+	m_scrollTimer->stop();
+	m_paused = false;
+
+	if (!m_recordingManagedThisSession || !m_autoStopOnEnd) {
+		finishNaturalEndWithoutRecordingStop();
+		return;
+	}
+
+	m_mode = Mode::EndCountdown;
+	setControls(Mode::EndCountdown);
+	flashStatus(QStringLiteral("Script ended. Stopping recording in 5 seconds."));
+	startCountdown(kEndStopCountdownSeconds, CountdownPurpose::EndStop);
+}
+
+void TeleprompterDock::finishNaturalEndWithoutRecordingStop()
+{
+	m_startPending = false;
+	m_paused = false;
+	m_mode = Mode::Idle;
+	setControls(Mode::Idle);
+	m_recordingManagedThisSession = false;
+	flashStatus(m_autoStopOnEnd
+			    ? QStringLiteral("Script ended.")
+			    : QStringLiteral(
+				      "Script ended. Recording left running."));
 }
 
 void TeleprompterDock::resetScroll()
@@ -1073,10 +1121,11 @@ void TeleprompterDock::resetScroll()
 }
 
 // ── countdown ───────────────────────────────────────────────────────────────
-void TeleprompterDock::startCountdown(int seconds)
+void TeleprompterDock::startCountdown(int seconds, CountdownPurpose purpose)
 {
+	m_countdownPurpose = purpose;
 	m_countRemaining = seconds;
-	m_countdownOverlay->setGeometry(m_stage->rect());
+	updateCountdownOverlayGeometry();
 	m_countdownOverlay->setText(QString::number(seconds));
 	m_countdownOverlay->raise();
 	m_countdownOverlay->setVisible(true);
@@ -1089,6 +1138,11 @@ void TeleprompterDock::countdownStep()
 	if (m_countRemaining <= 0) {
 		m_countdownTimer->stop();
 		m_countdownOverlay->setVisible(false);
+		if (m_countdownPurpose == CountdownPurpose::EndStop) {
+			if (m_mode == Mode::EndCountdown)
+				stopAll("end-of-script countdown");
+			return;
+		}
 		// Countdown finished. With auto-record enabled, request recording and
 		// gate scroll on the confirmed RECORDING_STARTED event. With it
 		// disabled, begin scrolling immediately without touching OBS recording.
@@ -1103,7 +1157,7 @@ void TeleprompterDock::countdownStep()
 		}
 		return;
 	}
-	m_countdownOverlay->setGeometry(m_stage->rect());
+	updateCountdownOverlayGeometry();
 	m_countdownOverlay->setText(QString::number(m_countRemaining));
 }
 
@@ -1111,6 +1165,15 @@ void TeleprompterDock::cancelCountdown()
 {
 	m_countdownTimer->stop();
 	m_countdownOverlay->setVisible(false);
+}
+
+void TeleprompterDock::updateCountdownOverlayGeometry()
+{
+	QRect rect = m_stage->rect();
+	if (m_countdownPurpose == CountdownPurpose::EndStop) {
+		rect.setTop(rect.top() + rect.height() / 2);
+	}
+	m_countdownOverlay->setGeometry(rect);
 }
 
 // ── orchestration ───────────────────────────────────────────────────────────
@@ -1142,7 +1205,7 @@ void TeleprompterDock::startSession()
 	}
 	m_mode = Mode::Counting;
 	setControls(Mode::Counting);
-	startCountdown(len);
+	startCountdown(len, CountdownPurpose::Start);
 }
 
 void TeleprompterDock::pauseResume()
@@ -1165,7 +1228,7 @@ void TeleprompterDock::stopAll(const char *reason)
 	const bool wasActive = (m_mode != Mode::Idle);
 
 	// cancel a mid-count countdown
-	if (m_mode == Mode::Counting)
+	if (m_mode == Mode::Counting || m_mode == Mode::EndCountdown)
 		cancelCountdown();
 
 	// Clear the pending flag so an in-flight RECORDING_STARTED handler that
@@ -1232,7 +1295,8 @@ void TeleprompterDock::setControls(Mode mode)
 {
 	const bool running = (mode == Mode::Running);
 	const bool busy = (mode == Mode::Counting ||
-			   mode == Mode::WaitingForRecord || running);
+			   mode == Mode::WaitingForRecord ||
+			   mode == Mode::EndCountdown || running);
 	m_startBtn->setEnabled(!busy);
 	m_pauseBtn->setEnabled(running);
 	m_stopBtn->setEnabled(busy);

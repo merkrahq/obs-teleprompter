@@ -58,7 +58,8 @@ protected:
 
 private:
 	// ── control state machine ────────────────────────────────────────────
-	enum class Mode { Idle, Counting, WaitingForRecord, Running };
+	enum class Mode { Idle, Counting, WaitingForRecord, Running, EndCountdown };
+	enum class CountdownPurpose { Start, EndStop };
 
 	void buildUi();
 	void applyStyle();
@@ -91,12 +92,14 @@ private:
 	double maxScroll() const;
 	void beginScroll();
 	void finishScroll();      // reached end naturally
+	void finishNaturalEndWithoutRecordingStop();
 	void resetScroll();
 
 	// countdown
-	void startCountdown(int seconds);
+	void startCountdown(int seconds, CountdownPurpose purpose);
 	void countdownStep();
 	void cancelCountdown();
+	void updateCountdownOverlayGeometry();
 
 	// orchestration
 	void startSession();
@@ -130,8 +133,10 @@ private:
 	double m_opacity = 1.0;
 	bool m_guide = false;
 	bool m_autoRecord = true;
+	bool m_autoStopOnEnd = true;
 	bool m_editorOpen = false;
 	bool m_settingsOpen = false;
+	int m_floatingPlacementVersion = 0;
 
 	// ── runtime state ────────────────────────────────────────────────────
 	Mode m_mode = Mode::Idle;
@@ -143,6 +148,7 @@ private:
 	// (port of the 724aa91 Stop-during-record-start race fix).
 	bool m_startPending = false;
 	bool m_recordingManagedThisSession = false;
+	CountdownPurpose m_countdownPurpose = CountdownPurpose::Start;
 
 	QTimer *m_scrollTimer = nullptr;
 	QElapsedTimer *m_frameClock = nullptr;
@@ -173,6 +179,7 @@ private:
 	QComboBox *m_countdownCombo = nullptr;
 	QCheckBox *m_guideCheck = nullptr;
 	QCheckBox *m_autoRecordCheck = nullptr;
+	QCheckBox *m_autoStopOnEndCheck = nullptr;
 	QLabel *m_readTime = nullptr;
 
 	PrompterStage *m_stage = nullptr;
