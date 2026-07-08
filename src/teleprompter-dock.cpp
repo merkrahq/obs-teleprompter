@@ -625,12 +625,10 @@ void TeleprompterDock::buildUi()
 	m_settingsPanel->resize(400, 560);
 
 	// ── script editor popup window ──
-	// Keep Script on the Qt::Tool path that was known to appear on the
-	// operator desktop; Settings stays Qt::Window because that fixed its
-	// visibility in the latest test build.
-	const Qt::WindowFlags scriptPopupFlags =
-		Qt::Tool | Qt::WindowTitleHint | Qt::WindowCloseButtonHint;
-	m_editorPanel = new QFrame(this, scriptPopupFlags);
+	// Use the same normal top-level window flags as Settings; on the operator
+	// desktop Settings is visible with this path while the Qt::Tool Script
+	// window did not show.
+	m_editorPanel = new QFrame(this, settingsPopupFlags);
 	m_editorPanel->setObjectName("panel");
 	m_editorPanel->setWindowTitle(QStringLiteral("Teleprompter Script"));
 	m_editorPanel->setAttribute(Qt::WA_QuitOnClose, false);
