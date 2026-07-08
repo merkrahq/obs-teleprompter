@@ -321,6 +321,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_countdownCombo->setCurrentIndex(
 		m_countdownCombo->findData(m_countdownLen));
 	m_guideCheck->setChecked(m_guide);
+	m_autoRecordCheck->setChecked(m_autoRecord);
 	setSettingsOpen(m_settingsOpen, false);
 	setEditorOpen(m_editorOpen, false);
 
@@ -529,6 +530,9 @@ void TeleprompterDock::buildUi()
 	{
 		m_guideCheck = new QCheckBox(QStringLiteral("Center guide line"));
 		setLay->addWidget(m_guideCheck);
+		m_autoRecordCheck = new QCheckBox(
+			QStringLiteral("Auto-start OBS recording"));
+		setLay->addWidget(m_autoRecordCheck);
 		m_readTime = new QLabel(QStringLiteral("~0:00 reading time"));
 		m_readTime->setObjectName("sub");
 		setLay->addWidget(m_readTime);
@@ -757,6 +761,10 @@ void TeleprompterDock::wireSignals()
 		m_stage->setGuide(on);
 		saveSettings();
 	});
+	connect(m_autoRecordCheck, &QCheckBox::toggled, this, [this](bool on) {
+		m_autoRecord = on;
+		saveSettings();
+	});
 }
 
 // ── settings persistence ────────────────────────────────────────────────────
@@ -803,6 +811,8 @@ void TeleprompterDock::loadSettings()
 		m_countdownLen = o.value("countdownLen").toInt(m_countdownLen);
 	if (o.contains("guide"))
 		m_guide = o.value("guide").toBool(m_guide);
+	if (o.contains("autoRecord"))
+		m_autoRecord = o.value("autoRecord").toBool(m_autoRecord);
 	if (o.contains("editorOpen"))
 		m_editorOpen = o.value("editorOpen").toBool(m_editorOpen);
 	if (o.contains("settingsOpen"))
@@ -833,6 +843,7 @@ void TeleprompterDock::saveSettingsNow()
 	o["opacity"] = m_opacity; // dock-background opacity (TODO 00006.b)
 	o["countdownLen"] = m_countdownLen;
 	o["guide"] = m_guide;
+	o["autoRecord"] = m_autoRecord;
 	o["editorOpen"] = m_editorOpen;
 	o["settingsOpen"] = m_settingsOpen;
 
@@ -998,12 +1009,18 @@ void TeleprompterDock::countdownStep()
 	if (m_countRemaining <= 0) {
 		m_countdownTimer->stop();
 		m_countdownOverlay->setVisible(false);
-		// countdown finished → request recording, then gate scroll on
-		// the confirmed RECORDING_STARTED event.
+		// Countdown finished. With auto-record enabled, request recording and
+		// gate scroll on the confirmed RECORDING_STARTED event. With it
+		// disabled, begin scrolling immediately without touching OBS recording.
 		if (m_mode != Mode::Counting)
 			return; // a Stop cancelled us mid-count
-		m_mode = Mode::WaitingForRecord;
-		requestRecordingStart();
+		if (m_autoRecord) {
+			m_mode = Mode::WaitingForRecord;
+			requestRecordingStart();
+		} else {
+			m_startPending = false;
+			beginScroll();
+		}
 		return;
 	}
 	m_countdownOverlay->setGeometry(m_stage->rect());
@@ -1026,15 +1043,21 @@ void TeleprompterDock::startSession()
 		return;
 	}
 	m_startPending = true;
+	m_recordingManagedThisSession = false;
 	// reset to top before counting
 	resetScroll();
 
 	const int len = m_countdownLen;
 	if (len <= 0) {
-		// no countdown — go straight to record request
-		m_mode = Mode::WaitingForRecord;
-		setControls(Mode::Counting); // Stop enabled, Start disabled
-		requestRecordingStart();
+		if (m_autoRecord) {
+			// no countdown — go straight to record request
+			m_mode = Mode::WaitingForRecord;
+			setControls(Mode::Counting); // Stop enabled, Start disabled
+			requestRecordingStart();
+		} else {
+			m_startPending = false;
+			beginScroll();
+		}
 		return;
 	}
 	m_mode = Mode::Counting;
@@ -1073,16 +1096,17 @@ void TeleprompterDock::stopAll(const char *reason)
 	m_mode = Mode::Idle;
 	setControls(Mode::Idle);
 
-	// Stop the recording we (may have) started. Safe to call even if the
-	// start hasn't been confirmed yet — a backstop against the record-start
-	// winning the race after this point.
-	if (wasActive)
+	// Stop only the recording this Start flow managed. In auto-record mode this
+	// preserves the existing start/reuse behavior and keeps the record-start
+	// race backstop. With auto-record disabled, Stop only stops scrolling.
+	if (wasActive && m_recordingManagedThisSession)
 		requestRecordingStop();
 }
 
 // ── recording (in-process OBS frontend API) ─────────────────────────────────
 void TeleprompterDock::requestRecordingStart()
 {
+	m_recordingManagedThisSession = true;
 	if (obs_frontend_recording_active()) {
 		// already recording — reuse it; the RECORDING_STARTED event
 		// won't fire, so gate the scroll here directly.
@@ -1109,7 +1133,7 @@ void TeleprompterDock::onRecordingStarted()
 	if (!m_startPending || m_mode != Mode::WaitingForRecord) {
 		// A Stop landed while the start was in flight → ensure nothing
 		// is left recording, and do not scroll.
-		if (!m_startPending)
+		if (!m_startPending && m_recordingManagedThisSession)
 			requestRecordingStop();
 		return;
 	}
@@ -1120,6 +1144,7 @@ void TeleprompterDock::onRecordingStarted()
 void TeleprompterDock::onRecordingStopped()
 {
 	setRecordingIndicator(false);
+	m_recordingManagedThisSession = false;
 }
 
 // ── control state / status ──────────────────────────────────────────────────

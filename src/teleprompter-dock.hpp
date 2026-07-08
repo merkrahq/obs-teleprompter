@@ -9,8 +9,8 @@
  *     font size / scroll speed / line height, a dark theme, an optional center
  *     guide line, and an animated countdown overlay;
  *   - runs the Start → countdown → record → scroll state machine, gating the
- *     scroll on the confirmed OBS_FRONTEND_EVENT_RECORDING_STARTED event
- *     (reliability-first — never scroll on an unconfirmed record start);
+ *     scroll on the confirmed OBS_FRONTEND_EVENT_RECORDING_STARTED event when
+ *     auto-record is enabled;
  *   - persists all settings to a JSON file under the plugin config path so they
  *     survive OBS restarts.
  *
@@ -128,6 +128,7 @@ private:
 	// reading text is always legible. See applyOpacity() / TODO 00006.b.
 	double m_opacity = 1.0;
 	bool m_guide = false;
+	bool m_autoRecord = true;
 	bool m_editorOpen = false;
 	bool m_settingsOpen = false;
 
@@ -140,6 +141,7 @@ private:
 	// RECORDING_STARTED handler checks it before beginning the scroll
 	// (port of the 724aa91 Stop-during-record-start race fix).
 	bool m_startPending = false;
+	bool m_recordingManagedThisSession = false;
 
 	QTimer *m_scrollTimer = nullptr;
 	QElapsedTimer *m_frameClock = nullptr;
@@ -169,6 +171,7 @@ private:
 	QLabel *m_opacityVal = nullptr;
 	QComboBox *m_countdownCombo = nullptr;
 	QCheckBox *m_guideCheck = nullptr;
+	QCheckBox *m_autoRecordCheck = nullptr;
 	QLabel *m_readTime = nullptr;
 
 	PrompterStage *m_stage = nullptr;
