@@ -107,6 +107,11 @@ private:
 	void flashStatus(const QString &text);
 	void setRecordingIndicator(bool on);
 
+	// After a collapsible panel (settings/editor) is hidden, shrink the hosting
+	// QDockWidget back down to the dock's reduced size hint — Qt keeps a dock at
+	// its grown size otherwise, so closing a panel would leave dead space.
+	void shrinkDockToFit();
+
 	// ── settings model (ports index.html `defaults`) ─────────────────────
 	QString m_script;
 	int m_fontSize = 48;      // px

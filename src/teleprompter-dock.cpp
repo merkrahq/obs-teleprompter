@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
@@ -56,6 +57,11 @@ const char *kMuted = "#8a97a6";
 // (kBad, a status signal not a control) keeps its own colour.
 const char *kAccent = "#f2f5f8";
 const char *kBad = "#ff5b5b";
+
+// Text-presentation variation selector (U+FE0E): appended to emoji-default
+// glyphs (⏸ ⏹ ⚙) to force monochrome rendering so they obey the white text
+// colour instead of showing as coloured emoji (TODO 00008.b follow-up).
+const QChar kTextVS(0xFE0E);
 
 TeleprompterDock *g_instance = nullptr;
 
@@ -363,17 +369,22 @@ void TeleprompterDock::buildUi()
 	// Transport controls are uniform WHITE-icon buttons (TODO 00006.a): no
 	// colored play/pause/stop fills — a clean, minimal look. Toggle/active
 	// state is shown with a subtle neutral fill (see applyStyle), not colour.
+	// NOTE (TODO 00008.b follow-up): ⏸ (U+23F8), ⏹ (U+23F9) and ⚙ (U+2699)
+	// default to EMOJI presentation, so Windows paints them as full-colour
+	// (blue-ish) emoji regardless of the stylesheet `color`. Appending the
+	// text-presentation variation selector U+FE0E (kTextVS) forces monochrome
+	// glyphs that obey the white text colour. ▶/⟲/✎ are text-default already.
 	m_startBtn = mkButton(QStringLiteral("▶ Start"),
 			      QStringLiteral("Start (Ctrl+Enter)"));
-	m_pauseBtn = mkButton(QStringLiteral("⏸ Pause"),
+	m_pauseBtn = mkButton(QStringLiteral("⏸") + kTextVS + QStringLiteral(" Pause"),
 			      QStringLiteral("Pause / Resume (Space)"));
-	m_stopBtn = mkButton(QStringLiteral("⏹ Stop"),
+	m_stopBtn = mkButton(QStringLiteral("⏹") + kTextVS + QStringLiteral(" Stop"),
 			     QStringLiteral("Stop (Esc)"));
 	m_resetBtn = mkButton(QStringLiteral("⟲ Reset"),
 			      QStringLiteral("Reset to top"));
 	m_scriptToggle = mkButton(QStringLiteral("✎ Script"),
 				  QStringLiteral("Show/hide script editor"));
-	m_settingsToggle = mkButton(QStringLiteral("⚙ Settings"),
+	m_settingsToggle = mkButton(QStringLiteral("⚙") + kTextVS + QStringLiteral(" Settings"),
 				    QStringLiteral("Show/hide settings"));
 
 	barLay->addWidget(m_startBtn);
@@ -615,6 +626,8 @@ void TeleprompterDock::wireSignals()
 		m_scriptToggle->style()->polish(m_scriptToggle);
 		if (m_editorOpen)
 			m_editor->setFocus();
+		else
+			shrinkDockToFit();  // reclaim the panel's space
 		saveSettings();
 	});
 	connect(m_settingsToggle, &QPushButton::clicked, this, [this]() {
@@ -623,6 +636,8 @@ void TeleprompterDock::wireSignals()
 		m_settingsToggle->setProperty("active", m_settingsOpen);
 		m_settingsToggle->style()->unpolish(m_settingsToggle);
 		m_settingsToggle->style()->polish(m_settingsToggle);
+		if (!m_settingsOpen)
+			shrinkDockToFit();  // reclaim the panel's space
 		saveSettings();
 	});
 
@@ -961,7 +976,8 @@ void TeleprompterDock::pauseResume()
 	if (!m_paused)
 		m_frameClock->restart();
 	m_pauseBtn->setText(m_paused ? QStringLiteral("▶ Resume")
-				     : QStringLiteral("⏸ Pause"));
+				     : QStringLiteral("⏸") + kTextVS +
+					       QStringLiteral(" Pause"));
 	m_pauseBtn->setProperty("active", m_paused);
 	m_pauseBtn->style()->unpolish(m_pauseBtn);
 	m_pauseBtn->style()->polish(m_pauseBtn);
@@ -1043,7 +1059,8 @@ void TeleprompterDock::setControls(Mode mode)
 	m_pauseBtn->setEnabled(running);
 	m_stopBtn->setEnabled(busy);
 	if (mode == Mode::Idle) {
-		m_pauseBtn->setText(QStringLiteral("⏸ Pause"));
+		m_pauseBtn->setText(QStringLiteral("⏸") + kTextVS +
+				    QStringLiteral(" Pause"));
 		m_pauseBtn->setProperty("active", false);
 		m_pauseBtn->style()->unpolish(m_pauseBtn);
 		m_pauseBtn->style()->polish(m_pauseBtn);
@@ -1059,6 +1076,47 @@ void TeleprompterDock::setRecordingIndicator(bool on)
 			     .arg(kMuted));
 	m_recLabel->setText(on ? QStringLiteral("● Recording")
 			       : QStringLiteral("Not recording"));
+}
+
+void TeleprompterDock::shrinkDockToFit()
+{
+	// Walk up to the hosting QDockWidget (OBS wraps our widget in one).
+	QWidget *w = parentWidget();
+	QDockWidget *dock = nullptr;
+	while (w) {
+		if ((dock = qobject_cast<QDockWidget *>(w)))
+			break;
+		w = w->parentWidget();
+	}
+	if (!dock || dock->isFloating())
+		// Floating docks are freely user-resizable — leave them alone.
+		// (A floating window already shrinks to its layout on hide.)
+		return;
+
+	// A docked QDockWidget keeps its grown height when a child is hidden, so
+	// closing a panel leaves dead space. Qt only lets the dock area shrink a
+	// dock below its current size by briefly clamping its maximum, then
+	// releasing it. Defer to the next event-loop turn so the just-hidden
+	// panel has been removed from the layout and sizeHint() reflects it.
+	QPointer<QDockWidget> guard(dock);
+	QTimer::singleShot(0, dock, [guard]() {
+		if (!guard)
+			return;
+		QDockWidget *d = guard;
+		const int target = d->widget() ? d->widget()->sizeHint().height()
+					       : d->sizeHint().height();
+		if (target <= 0)
+			return;
+		const int savedMax = d->maximumHeight();
+		d->setMaximumHeight(target);
+		// Release the clamp after the dock area has re-laid-out at the
+		// smaller size, so the user can still resize the dock afterwards.
+		QPointer<QDockWidget> g2(d);
+		QTimer::singleShot(0, d, [g2, savedMax]() {
+			if (g2)
+				g2->setMaximumHeight(savedMax);
+		});
+	});
 }
 
 void TeleprompterDock::flashStatus(const QString &text)
