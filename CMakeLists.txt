@@ -233,15 +233,33 @@ if(APPLE)
   # bundle lands at <prefix>/obs-teleprompter.plugin/. UNVERIFIED (no Mac in the
   # lab): the operator must install the CI .pkg and confirm the dock appears.
   #
-  # Per-user install (~/Library, no admin) via productbuild's user domain. If the
-  # user-domain install proves unreliable on the operator's macOS, the fallback
-  # is a system install at /Library/Application Support/obs-studio/plugins (set
-  # CPACK_PACKAGING_INSTALL_PREFIX to that absolute path and drop the domain vars
-  # — that one needs admin but is the most broadly-scanned location).
+  # ── macOS install target: per-user ~/Library, NO admin (00003.b) ─────────────
+  # OBS on macOS scans (per OBS docs + forums):
+  #   1. ~/Library/Application Support/obs-studio/plugins  — PER-USER, always
+  #      scanned, needs no admin. This is our target (the symmetry with Windows'
+  #      no-admin fallback), and it works regardless of where OBS.app installed.
+  #   2. /Library/Application Support/obs-studio/plugins   — SYSTEM, needs admin.
+  #   3. /Applications/OBS.app/Contents/PlugIns             — inside the app bundle.
+  # productbuild has NO preinstall path-redirect (unlike NSIS on Windows), so we
+  # cannot "discover OBS.app then reset the target" the way the Windows template
+  # does. Per the 00003.b acceptance the sanctioned alternative is to DEFAULT to
+  # the per-user domain — which lands the bundle in (1) above, a location OBS
+  # always scans, with no admin, so no app-bundle discovery is needed.
+  #
+  # HOW the per-user redirect works: CPACK_PACKAGING_INSTALL_PREFIX bakes the
+  # payload paths as `/Library/Application Support/obs-studio/plugins/...`, but
+  # the productbuild <domains> element below restricts the install to the
+  # current-user-home domain ONLY, so macOS Installer relocates that whole
+  # payload UNDER $HOME → ~/Library/Application Support/obs-studio/plugins/
+  # obs-teleprompter.plugin/. No admin prompt: enabling CPACK_PRODUCTBUILD_DOMAINS
+  # makes CPack OMIT the pkg-ref auth="Admin" attribute (CMake >= 3.23; the fix
+  # for the "user-home install still asks for admin" bug), and disabling the
+  # localSystem + anywhere domains leaves the user-home domain as the sole target.
   set(CPACK_PACKAGING_INSTALL_PREFIX "/Library/Application Support/obs-studio/plugins")
   set(CPACK_PRODUCTBUILD_DOMAINS ON)
-  set(CPACK_PRODUCTBUILD_DOMAINS_USER ON)
-  set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)
+  set(CPACK_PRODUCTBUILD_DOMAINS_USER ON)      # enable_currentUserHome="true"
+  set(CPACK_PRODUCTBUILD_DOMAINS_ANYWHERE OFF) # enable_anywhere="false"
+  set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)     # enable_localSystem="false"
   # Register the named component so productbuild writes a real <choices-outline>
   # referencing the (already non-empty) component .pkg. Without this the product
   # archive's outline is empty and the .pkg installs nothing (see the install()

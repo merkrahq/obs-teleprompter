@@ -229,7 +229,7 @@ jobs:
       # install location (e.g. Program Files instead of the OBS plugin tree).
       # This is our ONLY automated guard for macOS (no Mac to install on) and a
       # cheap regression guard for Windows.
-      - name: Assert macOS .pkg payload lands in the OBS plugin dir
+      - name: Assert macOS .pkg installs per-user (no admin) into the OBS plugin dir
         if: runner.os == 'macOS'
         shell: bash
         working-directory: build
@@ -252,18 +252,51 @@ jobs:
           echo "${paths:-<empty>}"
           [ -n "$paths" ] || { echo "FAIL: .pkg payload is EMPTY (installs nothing — check the install() COMPONENT + CPACK_COMPONENTS_ALL)"; exit 1; }
           # This .pkg uses pkgbuild --install-location "/" and bakes the FULL
-          # destination into the payload paths, so the effective install location
-          # (the GO-005 defect class) is the OBS plugins prefix carried in the
-          # payload path itself. Assert the bundle Mach-O + locale land at
-          # /Library/Application Support/obs-studio/plugins/obs-teleprompter.plugin/…
-          # (pkgutil prints payload paths with a leading './'; the '/' before
-          # Library is thus optional). The Mach-O must be the bundle-named exec
-          # (obs-teleprompter, no .so) or OBS won't load the bundle.
+          # destination into the payload paths, so the payload prefix is the OBS
+          # plugins path carried in the payload path itself. The per-user
+          # redirect happens at INSTALL time via the <domains> element (asserted
+          # below), which relocates this /Library payload under $HOME →
+          # ~/Library/Application Support/obs-studio/plugins/…  Assert the bundle
+          # Mach-O + locale carry that prefix (pkgutil prints payload paths with a
+          # leading './'; the '/' before Library is thus optional). The Mach-O
+          # must be the bundle-named exec (obs-teleprompter, no .so) or OBS won't
+          # load the bundle.
           echo "$paths" | grep -E '(^|\./|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/MacOS/obs-teleprompter$' \
-            || { echo "FAIL: .plugin Mach-O is not under /Library/Application Support/obs-studio/plugins (GO-005 location guard)"; exit 1; }
+            || { echo "FAIL: .plugin Mach-O is not under Library/Application Support/obs-studio/plugins (GO-005 location guard)"; exit 1; }
           echo "$paths" | grep -E '(^|\./|/)Library/Application Support/obs-studio/plugins/obs-teleprompter\.plugin/Contents/Resources/locale/en-US\.ini$' \
             || { echo "FAIL: locale not under the OBS plugins prefix inside the .plugin bundle"; exit 1; }
-          echo "OK: macOS .pkg installs obs-teleprompter.plugin into /Library/Application Support/obs-studio/plugins"
+          # ── 00003.b: per-user, NO-ADMIN guard ──────────────────────────────
+          # The install must land in ~/Library (per-user, no admin) — the symmetry
+          # with Windows' no-admin fallback. That is expressed by the productbuild
+          # <domains> element restricting the install to the current-user-home
+          # domain ONLY. Extract it from the shipped product archive's
+          # Distribution and assert:
+          #   enable_currentUserHome="true"  (offer the per-user home)
+          #   enable_localSystem="false"     (no system /Library → no admin)
+          #   enable_anywhere="false"        (no arbitrary root → no admin)
+          # AND that no pkg-ref carries auth="Admin"/"Root" (enabling
+          # CPACK_PRODUCTBUILD_DOMAINS makes CPack omit that attribute — the fix
+          # for "user-home install still prompts for admin"). If any of these
+          # regress, the .pkg would demand admin or offer a system install.
+          # Extract just the Distribution XML from the product archive. xar has no
+          # portable stdout mode across versions, so extract into a temp dir from
+          # an ABSOLUTE pkg path (cwd changes) and read the file back.
+          pkgabs="$PWD/$pkg"
+          tmpx=$(mktemp -d)
+          ( cd "$tmpx" && xar -xf "$pkgabs" Distribution >/dev/null 2>&1 )
+          dist=$(cat "$tmpx/Distribution" 2>/dev/null)
+          [ -n "$dist" ] || { echo "FAIL: could not extract Distribution XML from the .pkg"; exit 1; }
+          echo "=== Distribution <domains> + pkg-ref ==="
+          echo "$dist" | grep -E '<domains|pkg-ref' || echo "<no domains/pkg-ref lines found>"
+          echo "$dist" | grep -E '<domains[^>]*enable_currentUserHome="true"' \
+            || { echo "FAIL: <domains> does not enable the current-user-home install (per-user target missing — 00003.b)"; exit 1; }
+          echo "$dist" | grep -E '<domains[^>]*enable_localSystem="false"' \
+            || { echo "FAIL: <domains> still allows a system (/Library) install — that needs admin (00003.b no-admin guard)"; exit 1; }
+          echo "$dist" | grep -E '<domains[^>]*enable_anywhere="false"' \
+            || { echo "FAIL: <domains> still allows an anywhere install — that can need admin (00003.b no-admin guard)"; exit 1; }
+          ! echo "$dist" | grep -E 'auth="(Admin|Root)"' \
+            || { echo "FAIL: a pkg-ref still carries auth=Admin/Root — the .pkg would prompt for admin (00003.b no-admin guard)"; exit 1; }
+          echo "OK: macOS .pkg installs obs-teleprompter.plugin per-user (~/Library, no admin) — user-home domain only, no auth=Admin"
 
       - name: Assert Windows .zip has the OBS drop-in layout
         if: runner.os == 'Windows'
