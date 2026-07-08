@@ -383,8 +383,8 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_guideCheck->setChecked(m_guide);
 	m_autoRecordCheck->setChecked(m_autoRecord);
 	m_autoStopOnEndCheck->setChecked(m_autoStopOnEnd);
-	setSettingsOpen(m_settingsOpen, false);
-	setEditorOpen(m_editorOpen, false);
+	setSettingsOpen(false, false);
+	setEditorOpen(false, false);
 
 	m_fontVal->setText(QString::number(m_fontSize) + "px");
 	m_lineVal->setText(QString::number(m_lineHeight, 'f', 2));
@@ -860,8 +860,7 @@ void TeleprompterDock::wireSignals()
 		&TeleprompterDock::resetScroll);
 
 	connect(m_scriptToggle, &QPushButton::clicked, this, [this]() {
-		const bool visible = m_editorPanel && m_editorPanel->isVisible();
-		setEditorOpen(!visible, true);
+		setEditorOpen(true, true);
 	});
 	connect(m_settingsToggle, &QPushButton::clicked, this, [this]() {
 		const bool visible = m_settingsPanel && m_settingsPanel->isVisible();
@@ -970,10 +969,6 @@ void TeleprompterDock::loadSettings()
 	if (o.contains("autoStopOnEnd"))
 		m_autoStopOnEnd =
 			o.value("autoStopOnEnd").toBool(m_autoStopOnEnd);
-	if (o.contains("editorOpen"))
-		m_editorOpen = o.value("editorOpen").toBool(m_editorOpen);
-	if (o.contains("settingsOpen"))
-		m_settingsOpen = o.value("settingsOpen").toBool(m_settingsOpen);
 	if (o.contains("floatingPlacementVersion"))
 		m_floatingPlacementVersion =
 			o.value("floatingPlacementVersion")
@@ -1006,8 +1001,6 @@ void TeleprompterDock::saveSettingsNow()
 	o["guide"] = m_guide;
 	o["autoRecord"] = m_autoRecord;
 	o["autoStopOnEnd"] = m_autoStopOnEnd;
-	o["editorOpen"] = m_editorOpen;
-	o["settingsOpen"] = m_settingsOpen;
 	o["floatingPlacementVersion"] = m_floatingPlacementVersion;
 
 	QFile f(settingsPath());

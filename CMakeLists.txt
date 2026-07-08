@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # "[obs-teleprompter] loaded (version X.Y.Z)" self-identifies which build is
 # actually loaded — the version had been stuck at 0.1.0 across all releases,
 # which made a stale/duplicate DLL indistinguishable from a fresh one in the log.
-project(obs-teleprompter VERSION 0.1.16)
+project(obs-teleprompter VERSION 0.1.17)
 
 option(ENABLE_FRONTEND_API "Use the OBS frontend API (required for the dock)" ON)
 option(ENABLE_QT "Use Qt functionality (required for the dock)" ON)
