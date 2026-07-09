@@ -296,6 +296,10 @@ jobs:
             || { echo "FAIL: <domains> still allows an anywhere install — that can need admin (00003.b no-admin guard)"; exit 1; }
           ! echo "$dist" | grep -E 'auth="(Admin|Root)"' \
             || { echo "FAIL: a pkg-ref still carries auth=Admin/Root — the .pkg would prompt for admin (00003.b no-admin guard)"; exit 1; }
+          echo "$dist" | grep -E '<background[^>]*obs-teleprompter-icon\.png' \
+            || { echo "FAIL: productbuild Distribution does not reference the teleprompter icon background"; exit 1; }
+          echo "$dist" | grep -E '<background-darkAqua[^>]*obs-teleprompter-icon\.png' \
+            || { echo "FAIL: productbuild Distribution does not reference the dark-mode teleprompter icon background"; exit 1; }
           echo "OK: macOS .pkg installs obs-teleprompter.plugin per-user (~/Library, no admin) — user-home domain only, no auth=Admin"
 
       - name: Assert Windows .zip has the OBS drop-in layout
@@ -372,6 +376,8 @@ jobs:
             || { echo "FAIL: no WOW6432Node view of the OBS Studio uninstall key (32-bit registry redirection not handled)"; exit 1; }
           grep -E 'obs-plugins\\64bit' "$nsi" \
             || { echo "FAIL: discovery does not target <obs>\\obs-plugins\\64bit"; exit 1; }
+          grep -E 'obs-teleprompter-icon\.ico' "$nsi" \
+            || { echo "FAIL: generated NSIS script does not reference the teleprompter .ico installer icon"; exit 1; }
           # (4) ProgramData nested fallback present, clean BACKSLASHES (GO-008).
           grep -E 'StrCpy \$INSTDIR[[:space:]]+"?\$APPDATA\\obs-studio\\plugins\\obs-teleprompter"?' "$nsi" \
             || { echo "FAIL: no %ProgramData% nested fallback (\$APPDATA under all-users context)"; exit 1; }
