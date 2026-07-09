@@ -1,5 +1,9 @@
 # OBS Docked Teleprompter
 
+<p align="center">
+  <img src="docs/assets/obs-teleprompter-icon.webp" alt="OBS Docked Teleprompter icon" width="180">
+</p>
+
 A free, native **OBS Studio plugin** that adds a teleprompter dock right inside OBS.
 Install it once, launch OBS, and the **Teleprompter** dock is already there — no Custom
 Browser Dock setup, no `file://` URL, no WebSocket host/port/password to configure.
