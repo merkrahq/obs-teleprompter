@@ -204,6 +204,15 @@ set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/merkrahq/obs-teleprompter")
 set(CPACK_PACKAGE_CONTACT "admin@merkra.com")
 set(_package_icon_png "${CMAKE_CURRENT_SOURCE_DIR}/docs/assets/obs-teleprompter-icon.png")
 set(_package_icon_ico "${CMAKE_CURRENT_SOURCE_DIR}/docs/assets/obs-teleprompter-icon.ico")
+set(_package_icon_png_name "obs-teleprompter-icon.png")
+set(_package_resources_dir "${CMAKE_BINARY_DIR}/package-resources")
+if(EXISTS "${_package_icon_png}")
+  file(MAKE_DIRECTORY "${_package_resources_dir}")
+  configure_file(
+    "${_package_icon_png}"
+    "${_package_resources_dir}/${_package_icon_png_name}"
+    COPYONLY)
+endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
   # CPack's macOS productbuild + Windows NSIS generators reject a license file
   # whose extension isn't one of .txt/.rtf/.html ("CPack Error: Bad file
@@ -267,12 +276,13 @@ if(APPLE)
   set(CPACK_PRODUCTBUILD_DOMAINS_ANYWHERE OFF) # enable_anywhere="false"
   set(CPACK_PRODUCTBUILD_DOMAINS_ROOT OFF)     # enable_localSystem="false"
   if(EXISTS "${_package_icon_png}")
-    set(CPACK_PRODUCTBUILD_BACKGROUND "${_package_icon_png}")
+    set(CPACK_PRODUCTBUILD_RESOURCES_DIR "${_package_resources_dir}")
+    set(CPACK_PRODUCTBUILD_BACKGROUND "${_package_icon_png_name}")
     set(CPACK_PRODUCTBUILD_BACKGROUND_ALIGNMENT "center")
     set(CPACK_PRODUCTBUILD_BACKGROUND_SCALING "none")
     set(CPACK_PRODUCTBUILD_BACKGROUND_MIME_TYPE "image/png")
     set(CPACK_PRODUCTBUILD_BACKGROUND_UTI "public.png")
-    set(CPACK_PRODUCTBUILD_BACKGROUND_DARKAQUA "${_package_icon_png}")
+    set(CPACK_PRODUCTBUILD_BACKGROUND_DARKAQUA "${_package_icon_png_name}")
     set(CPACK_PRODUCTBUILD_BACKGROUND_DARKAQUA_ALIGNMENT "center")
     set(CPACK_PRODUCTBUILD_BACKGROUND_DARKAQUA_SCALING "none")
     set(CPACK_PRODUCTBUILD_BACKGROUND_DARKAQUA_MIME_TYPE "image/png")
