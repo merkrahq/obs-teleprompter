@@ -130,7 +130,7 @@ QIcon makeTransportIcon(TransportIcon icon)
 // defaults (48px font, 1.5 line-height) yield the historical ~60 px/s baseline
 // (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
 constexpr double kLinesPerSec = 0.83333;
-constexpr int kFloatingPlacementVersion = 3;
+constexpr int kFloatingPlacementVersion = 4;
 constexpr int kMinAutoStopDelaySeconds = 1;
 constexpr int kMaxAutoStopDelaySeconds = 60;
 double fontBaseSpeed(int fontPx, double lineHeight)
@@ -891,7 +891,8 @@ void TeleprompterDock::wireSignals()
 		&TeleprompterDock::resetScroll);
 
 	connect(m_scriptToggle, &QPushButton::clicked, this, [this]() {
-		setEditorOpen(true, true);
+		const bool visible = m_editorPanel && m_editorPanel->isVisible();
+		setEditorOpen(!visible, true);
 	});
 	connect(m_settingsToggle, &QPushButton::clicked, this, [this]() {
 		const bool visible = m_settingsPanel && m_settingsPanel->isVisible();
