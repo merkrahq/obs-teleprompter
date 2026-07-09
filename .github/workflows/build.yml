@@ -378,6 +378,8 @@ jobs:
             || { echo "FAIL: discovery does not target <obs>\\obs-plugins\\64bit"; exit 1; }
           grep -E 'obs-teleprompter-icon\.ico' "$nsi" \
             || { echo "FAIL: generated NSIS script does not reference the teleprompter .ico installer icon"; exit 1; }
+          grep -E 'obs-teleprompter-installer-wizard\.bmp' "$nsi" \
+            || { echo "FAIL: generated NSIS script does not reference the teleprompter wizard bitmap"; exit 1; }
           # (4) ProgramData nested fallback present, clean BACKSLASHES (GO-008).
           grep -E 'StrCpy \$INSTDIR[[:space:]]+"?\$APPDATA\\obs-studio\\plugins\\obs-teleprompter"?' "$nsi" \
             || { echo "FAIL: no %ProgramData% nested fallback (\$APPDATA under all-users context)"; exit 1; }
