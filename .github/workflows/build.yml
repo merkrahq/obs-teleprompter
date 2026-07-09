@@ -309,9 +309,9 @@ jobs:
           # The ZIP generator names the single top folder after
           # CPACK_PACKAGE_FILE_NAME (obs-teleprompter-windows-x86_64/), NOT
           # CPACK_PACKAGE_INSTALL_DIRECTORY — so match the OBS drop-in tree under
-          # ANY top dir (.*/bin/64bit/...). The .exe installer (asserted below) is
-          # what carries the real %APPDATA% install ROOT; the .zip only proves the
-          # bin/64bit + data/locale drop-in LAYOUT is intact.
+          # ANY top dir (.*/bin/64bit/...). The .exe installer (asserted below)
+          # discovers the real Windows OBS plugin target; the .zip only proves
+          # the bin/64bit + data/locale drop-in LAYOUT is intact.
           unzip -l "$zip" | grep -E '(^|/)bin/64bit/obs-teleprompter\.dll$' \
             || { echo "FAIL: .dll not at <top>/bin/64bit/ in the zip"; exit 1; }
           unzip -l "$zip" | grep -E '(^|/)data/locale/en-US\.ini$' \
