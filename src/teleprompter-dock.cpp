@@ -129,7 +129,7 @@ QIcon makeTransportIcon(TransportIcon icon)
 // defaults (48px font, 1.5 line-height) yield the historical ~60 px/s baseline
 // (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
 constexpr double kLinesPerSec = 0.83333;
-constexpr int kFloatingPlacementVersion = 2;
+constexpr int kFloatingPlacementVersion = 3;
 constexpr int kEndStopCountdownSeconds = 5;
 double fontBaseSpeed(int fontPx, double lineHeight)
 {
@@ -808,11 +808,17 @@ void TeleprompterDock::applyDefaultFloatingDockPlacement(bool allowConfirm)
 		return;
 	}
 
-	const bool repairPriorMigration =
-		m_floatingPlacementVersion > 0 &&
-		m_floatingPlacementVersion < kFloatingPlacementVersion;
-	if (!repairPriorMigration && !looksDefaultCentered(frame, screen))
+	const bool defaultCentered = looksDefaultCentered(frame, screen);
+	if (!defaultCentered) {
+		if (allowConfirm && m_floatingPlacementVersion > 0) {
+			m_floatingPlacementVersion = kFloatingPlacementVersion;
+			saveSettings();
+			blog(LOG_INFO,
+			     "[obs-teleprompter] preserving non-default floating dock geometry on placement migration %d",
+			     kFloatingPlacementVersion);
+		}
 		return;
+	}
 
 	const QPoint target = topCenterForFrame(frame, screen);
 	dock->move(target);
