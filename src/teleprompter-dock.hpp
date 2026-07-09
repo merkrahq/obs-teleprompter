@@ -29,6 +29,7 @@ class QScrollArea;
 class QLabel;
 class QPushButton;
 class QSlider;
+class QSpinBox;
 class QComboBox;
 class QCheckBox;
 class QFrame;
@@ -134,6 +135,7 @@ private:
 	bool m_guide = false;
 	bool m_autoRecord = true;
 	bool m_autoStopOnEnd = true;
+	int m_autoStopDelaySeconds = 5;
 	bool m_editorOpen = false;
 	bool m_settingsOpen = false;
 	int m_floatingPlacementVersion = 0;
@@ -180,6 +182,7 @@ private:
 	QCheckBox *m_guideCheck = nullptr;
 	QCheckBox *m_autoRecordCheck = nullptr;
 	QCheckBox *m_autoStopOnEndCheck = nullptr;
+	QSpinBox *m_autoStopDelaySpin = nullptr;
 	QLabel *m_readTime = nullptr;
 
 	PrompterStage *m_stage = nullptr;

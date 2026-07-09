@@ -40,6 +40,7 @@
 #include <QScreen>
 #include <QScrollBar>
 #include <QSlider>
+#include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -130,10 +131,19 @@ QIcon makeTransportIcon(TransportIcon icon)
 // (48 * 1.5 * 0.8333 ≈ 60). The speed slider multiplies this baseline.
 constexpr double kLinesPerSec = 0.83333;
 constexpr int kFloatingPlacementVersion = 3;
-constexpr int kEndStopCountdownSeconds = 5;
+constexpr int kMinAutoStopDelaySeconds = 1;
+constexpr int kMaxAutoStopDelaySeconds = 60;
 double fontBaseSpeed(int fontPx, double lineHeight)
 {
 	return double(fontPx) * lineHeight * kLinesPerSec;
+}
+
+QString secondsLabel(int seconds)
+{
+	return QStringLiteral("%1 %2")
+		.arg(seconds)
+		.arg(seconds == 1 ? QStringLiteral("second")
+				  : QStringLiteral("seconds"));
 }
 
 QPoint topCenterForFrame(const QRect &frame, const QRect &screen)
@@ -383,6 +393,8 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_guideCheck->setChecked(m_guide);
 	m_autoRecordCheck->setChecked(m_autoRecord);
 	m_autoStopOnEndCheck->setChecked(m_autoStopOnEnd);
+	m_autoStopDelaySpin->setValue(m_autoStopDelaySeconds);
+	m_autoStopDelaySpin->setEnabled(m_autoStopOnEnd);
 	setSettingsOpen(false, false);
 	setEditorOpen(false, false);
 
@@ -617,6 +629,16 @@ void TeleprompterDock::buildUi()
 		m_autoStopOnEndCheck = new QCheckBox(
 			QStringLiteral("Auto-stop OBS recording at script end"));
 		setLay->addWidget(m_autoStopOnEndCheck);
+		auto *row = new QHBoxLayout();
+		row->addWidget(mkFieldLabel(QStringLiteral("Auto-stop delay")));
+		m_autoStopDelaySpin = new QSpinBox();
+		m_autoStopDelaySpin->setRange(kMinAutoStopDelaySeconds,
+					       kMaxAutoStopDelaySeconds);
+		m_autoStopDelaySpin->setSuffix(QStringLiteral(" sec"));
+		m_autoStopDelaySpin->setSingleStep(1);
+		row->addStretch(1);
+		row->addWidget(m_autoStopDelaySpin);
+		setLay->addLayout(row);
 		m_readTime = new QLabel(QStringLiteral("~0:00 reading time"));
 		m_readTime->setObjectName("sub");
 		setLay->addWidget(m_readTime);
@@ -704,6 +726,9 @@ void TeleprompterDock::applyStyle()
 			"  border-radius:8px; padding:8px;"
 			"  font-family:monospace; font-size:14px; }"
 			"QComboBox {"
+			"  background:%6; color:%3; border:1px solid %7;"
+			"  border-radius:6px; padding:5px 8px; }"
+			"QSpinBox {"
 			"  background:%6; color:%3; border:1px solid %7;"
 			"  border-radius:6px; padding:5px 8px; }"
 			"QComboBox QAbstractItemView {"
@@ -922,6 +947,12 @@ void TeleprompterDock::wireSignals()
 	connect(m_autoStopOnEndCheck, &QCheckBox::toggled, this,
 		[this](bool on) {
 			m_autoStopOnEnd = on;
+			m_autoStopDelaySpin->setEnabled(on);
+			saveSettings();
+		});
+	connect(m_autoStopDelaySpin,
+		QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) {
+			m_autoStopDelaySeconds = v;
 			saveSettings();
 		});
 }
@@ -975,6 +1006,12 @@ void TeleprompterDock::loadSettings()
 	if (o.contains("autoStopOnEnd"))
 		m_autoStopOnEnd =
 			o.value("autoStopOnEnd").toBool(m_autoStopOnEnd);
+	if (o.contains("autoStopDelaySeconds"))
+		m_autoStopDelaySeconds =
+			o.value("autoStopDelaySeconds").toInt(m_autoStopDelaySeconds);
+	m_autoStopDelaySeconds = qBound(kMinAutoStopDelaySeconds,
+					m_autoStopDelaySeconds,
+					kMaxAutoStopDelaySeconds);
 	if (o.contains("floatingPlacementVersion"))
 		m_floatingPlacementVersion =
 			o.value("floatingPlacementVersion")
@@ -1007,6 +1044,7 @@ void TeleprompterDock::saveSettingsNow()
 	o["guide"] = m_guide;
 	o["autoRecord"] = m_autoRecord;
 	o["autoStopOnEnd"] = m_autoStopOnEnd;
+	o["autoStopDelaySeconds"] = m_autoStopDelaySeconds;
 	o["floatingPlacementVersion"] = m_floatingPlacementVersion;
 
 	QFile f(settingsPath());
@@ -1155,8 +1193,9 @@ void TeleprompterDock::finishScroll()
 
 	m_mode = Mode::EndCountdown;
 	setControls(Mode::EndCountdown);
-	flashStatus(QStringLiteral("Script ended. Stopping recording in 5 seconds."));
-	startCountdown(kEndStopCountdownSeconds, CountdownPurpose::EndStop);
+	flashStatus(QStringLiteral("Script ended. Stopping recording in %1.")
+			    .arg(secondsLabel(m_autoStopDelaySeconds)));
+	startCountdown(m_autoStopDelaySeconds, CountdownPurpose::EndStop);
 }
 
 void TeleprompterDock::finishNaturalEndWithoutRecordingStop()
