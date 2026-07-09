@@ -95,8 +95,8 @@ README's `releases/latest/download/<name>` links stay stable across version bump
 ### Portable "drag-into-OBS" folder
 
 Separate from the system installers, the `portable` target stages the plugin in
-OBS's per-user drop-in layout so a user can unzip and drag it straight into OBS
-with no installer / no admin rights:
+OBS's drop-in layout so a user can unzip and place it straight into OBS's plugin
+directory:
 
 ```sh
 cmake --build build --target portable    # → build/portable/obs-teleprompter/
@@ -107,11 +107,13 @@ cmake -E tar cf obs-teleprompter-linux-portable.zip --format=zip \
 ```
 
 Drop the unzipped `obs-teleprompter` folder into `~/.config/obs-studio/plugins/`
-(Linux), `%APPDATA%\obs-studio\plugins\` (Windows), or
+(Linux), `%ProgramData%\obs-studio\plugins\` (Windows), or
 `~/Library/Application Support/obs-studio/plugins/` (macOS). **Verified on this
 box:** dragged the Linux portable folder into the per-user plugins dir → headless
 OBS 30 loaded it and registered the dock, zero errors. CI attaches
 `obs-teleprompter-<os>-portable.zip` to each Release beside the installers.
+On Windows, the `.exe` installer is preferred because it discovers the correct
+OBS plugin location; OBS does not scan `%APPDATA%\obs-studio\plugins\`.
 
 Installers are **unsigned** for now (decision `ship-unsigned-installers-first`):
 the Windows `.exe` trips SmartScreen and the macOS `.pkg` trips Gatekeeper until

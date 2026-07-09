@@ -33,9 +33,10 @@ together. Everything is local; nothing is sent anywhere.
 
 ## Install
 
-There are two ways to install — an **installer** for your OS, or a **portable folder** you drag
-straight into OBS. Both make the **Teleprompter** dock appear automatically the next time you
-launch OBS (no Custom Browser Dock, no URL, no WebSocket config).
+There are two ways to install — an **installer** for your OS, or a **portable folder** you place
+in OBS's plugin directory. Both make the **Teleprompter** dock appear automatically the next time
+you launch OBS (no Custom Browser Dock, no URL, no WebSocket config). On Windows, the installer
+is recommended because OBS does not scan the per-user Roaming/AppData plugin path.
 
 > The links below always point at the newest release (GitHub's `latest/download` redirect). The
 > full list of assets for any version is on the
@@ -49,15 +50,15 @@ launch OBS (no Custom Browser Dock, no URL, no WebSocket config).
 | **Windows** | [`obs-teleprompter-windows-x86_64.exe`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-windows-x86_64.exe) | Run the installer |
 | **macOS** | [`obs-teleprompter-macos.pkg`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-macos.pkg) | Open the `.pkg` and follow the steps |
 
-### Option B — portable folder (drag into OBS, no admin rights)
+### Option B — portable folder (manual install)
 
 Download the compressed folder for your OS, **unzip it**, and drop the resulting
-`obs-teleprompter` folder into your OBS plugins directory — no installer, no root/admin.
+`obs-teleprompter` folder into your OBS plugins directory.
 
 | OS | Download | Drop the `obs-teleprompter` folder into |
 |---|---|---|
 | **Linux** | [`obs-teleprompter-linux-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-linux-portable.zip) | `~/.config/obs-studio/plugins/` |
-| **Windows** | [`obs-teleprompter-windows-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-windows-portable.zip) | `%APPDATA%\obs-studio\plugins\` |
+| **Windows** | [`obs-teleprompter-windows-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-windows-portable.zip) | `%ProgramData%\obs-studio\plugins\` |
 | **macOS** | [`obs-teleprompter-macos-portable.zip`](https://github.com/merkrahq/obs-teleprompter/releases/latest/download/obs-teleprompter-macos-portable.zip) | `~/Library/Application Support/obs-studio/plugins/` |
 
 Each zip contains a single `obs-teleprompter/` folder in OBS's plugin layout
@@ -65,6 +66,9 @@ Each zip contains a single `obs-teleprompter/` folder in OBS's plugin layout
 
 > A system `.tar.gz` (Linux) is also attached for packagers — it extracts over `/usr`. For a
 > plain drag-in, use the **portable** zip above, not the `.tar.gz`.
+>
+> Windows manual portable install may require administrator permission to write under
+> `%ProgramData%`. The `.exe` installer handles the correct Windows OBS plugin location for you.
 
 ### ⚠️ Unsigned — one-time OS override
 

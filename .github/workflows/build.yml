@@ -458,12 +458,15 @@ jobs:
             **Option A — installer:** download the file for your OS and run it
             (`*-linux-x86_64.deb`, `*-windows-x86_64.exe`, `*-macos.pkg`).
 
-            **Option B — portable (no admin rights):** download
+            **Option B — portable (manual install):** download
             `obs-teleprompter-<os>-portable.zip`, unzip it, and drop the
             `obs-teleprompter` folder into your OBS plugins dir:
             `~/.config/obs-studio/plugins/` (Linux),
-            `%APPDATA%\obs-studio\plugins\` (Windows), or
+            `%ProgramData%\obs-studio\plugins\` (Windows), or
             `~/Library/Application Support/obs-studio/plugins/` (macOS).
+            On Windows, use the `.exe` installer unless you specifically need
+            a manual portable install; OBS does not scan the Roaming/AppData
+            plugin path.
 
             Either way, launch OBS Studio and the **Teleprompter** dock appears
             automatically under **Docks** (no Custom Browser Dock, no URL, no

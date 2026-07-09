@@ -330,13 +330,12 @@ include(CPack)
 
 # ── Portable "drag-into-OBS" plugin folder ───────────────────────────────────
 # Separate from the CPack system installers above: this stages the plugin in
-# OBS's per-user drop-in layout —
+# OBS's drop-in layout —
 #     obs-teleprompter/bin/64bit/obs-teleprompter.{so,dll}
 #     obs-teleprompter/data/locale/en-US.ini
-# — which a user can unzip and drop straight into their OBS plugins dir with no
-# installer and no admin rights:
+# — which a user can unzip and place straight into their OBS plugins dir:
 #     Linux   → ~/.config/obs-studio/plugins/
-#     Windows → %APPDATA%\obs-studio\plugins\
+#     Windows → %ProgramData%\obs-studio\plugins\  (OBS does not scan %APPDATA%)
 #     macOS   → ~/Library/Application Support/obs-studio/plugins/
 # The `portable` target builds this tree under build/portable/; CI zips it into
 # obs-teleprompter-<os>-portable.zip and attaches it to the Release beside the
