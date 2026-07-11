@@ -1,4 +1,4 @@
-# Building the OBS Docked Teleprompter plugin
+# Building the Docked Teleprompter plugin for OBS Studio
 
 Native OBS plugin (C++/Qt6, CMake + libobs + the OBS frontend API). This is the
 current primary artifact; the single-file `index.html` is retained only as the

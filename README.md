@@ -1,12 +1,15 @@
-# OBS Docked Teleprompter
+# Docked Teleprompter
 
 <p align="center">
-  <img src="docs/assets/obs-teleprompter-icon.webp" alt="OBS Docked Teleprompter icon" width="180">
+  <img src="docs/assets/obs-teleprompter-icon.webp" alt="Docked Teleprompter icon" width="180">
 </p>
 
-A free, native **OBS Studio plugin** that adds a teleprompter dock right inside OBS.
-Install it once, launch OBS, and the **Teleprompter** dock is already there — no Custom
-Browser Dock setup, no `file://` URL, no WebSocket host/port/password to configure.
+A free, third-party teleprompter dock for OBS Studio. It adds a teleprompter dock right
+inside OBS. Install it once, launch OBS, and the **Teleprompter** dock is already there — no
+Custom Browser Dock setup, no `file://` URL, no WebSocket host/port/password to configure.
+
+> **Not affiliated with or endorsed by the OBS Project.** This is an independent, third-party
+> tool that extends OBS Studio.
 
 Paste a script, press **Start** — a countdown runs, OBS starts recording automatically, and
 the script scrolls smoothly. Press **Stop** and it halts both the scroll and the recording
