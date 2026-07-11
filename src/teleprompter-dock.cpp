@@ -251,9 +251,19 @@ public:
 		return qMax(1, int(qRound(m_fontPx * m_lineSpacing)));
 	}
 
-	// Keep a full blank tail available so finishScroll() can leave the stage
-	// black, but stop at readableEndOffset() before the final line hits the top
-	// clip edge.
+	int renderGuardPx() const
+	{
+		return qMax(4, lineBoxPx() / 3);
+	}
+
+	int edgeSafePx() const
+	{
+		return qMax(8, lineBoxPx() / 4);
+	}
+
+	// Keep a full blank tail available in the scroll geometry, but stop at
+	// readableEndOffset() so the final text remains visible while Auto-stop
+	// counts down.
 	int bottomPad() const { return height(); }
 
 	// Total scrollable content height (label height + top & bottom pad).
@@ -337,7 +347,10 @@ private:
 		const int w = qMax(1, width() - 2 * sideMargin);
 		m_label->setFixedWidth(w);
 		// height driven by content at that width
+		m_label->setMaximumHeight(QWIDGETSIZE_MAX);
+		m_label->setMinimumHeight(0);
 		m_label->adjustSize();
+		m_label->setFixedHeight(m_label->height() + renderGuardPx());
 		positionLabel();
 		update();
 	}
@@ -358,11 +371,23 @@ private:
 
 	double readableEndOffset() const
 	{
+		if (height() <= 0)
+			return 0;
 		const double centerY = height() / 2.0;
 		const double lineBox = lineBoxPx();
+		const double safe = edgeSafePx();
 		const double finalLineBottomY =
-			qMin(centerY, qMax(lineBox, centerY - lineBox / 2.0));
-		return topPad() + m_label->height() - finalLineBottomY;
+			qMin(centerY, qMax(lineBox + safe, centerY - lineBox / 2.0));
+		double end = topPad() + m_label->height() - finalLineBottomY;
+
+		// If the full script fits in the stage, keep the final end state as a
+		// fully readable block instead of scrolling its top through the clip
+		// edge. Long scripts still use final-line positioning, where earlier
+		// lines naturally scroll offscreen.
+		if (m_label->height() + 2 * safe <= height())
+			end = qMin(end, double(topPad() - safe));
+
+		return qMax(0.0, end);
 	}
 
 	QLabel *m_label = nullptr;
@@ -1222,7 +1247,6 @@ void TeleprompterDock::finishScroll()
 {
 	m_scrollTimer->stop();
 	m_paused = false;
-	m_stage->setEndBlank(true);
 
 	if (!m_recordingManagedThisSession || !m_autoStopOnEnd) {
 		finishNaturalEndWithoutRecordingStop();

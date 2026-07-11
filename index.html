@@ -432,10 +432,18 @@
     const rawMax = Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
     const visibleH = els.scroller.clientHeight;
     const lineBox = state.fontSize * state.lineHeight;
-    const finalLineBottomY = Math.min(visibleH / 2, Math.max(lineBox, visibleH / 2 - lineBox / 2));
-    const bottomPad = parseFloat(getComputedStyle(els.prompter).paddingBottom) || 0;
+    const safe = Math.max(8, lineBox / 4);
+    const finalLineBottomY = Math.min(visibleH / 2, Math.max(lineBox + safe, visibleH / 2 - lineBox / 2));
+    const prompterStyle = getComputedStyle(els.prompter);
+    const topPad = parseFloat(prompterStyle.paddingTop) || 0;
+    const bottomPad = parseFloat(prompterStyle.paddingBottom) || 0;
+    const textHeight = Math.max(0, els.prompter.scrollHeight - topPad - bottomPad);
     const readableTail = Math.max(0, bottomPad - (visibleH - finalLineBottomY));
-    return Math.max(0, rawMax - readableTail);
+    let readableMax = rawMax - readableTail;
+    if (textHeight + 2 * safe <= visibleH) {
+      readableMax = Math.min(readableMax, topPad - safe);
+    }
+    return Math.max(0, readableMax);
   }
 
   function tick(now) {
@@ -446,7 +454,7 @@
       const max = maxScroll();
       if (scroll.pos >= max) {
         scroll.pos = max;
-        els.scroller.scrollTop = Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
+        els.scroller.scrollTop = scroll.pos;
         finishScroll();
         return;
       }
