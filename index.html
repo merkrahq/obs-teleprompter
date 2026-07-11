@@ -388,6 +388,11 @@
     els.readTime.textContent = `~${m}:${String(s).padStart(2, "0")} reading time · ${words} words`;
   }
 
+  function applyPrompterMetrics() {
+    root.setProperty("--prompter-font", state.fontSize + "px");
+    root.setProperty("--prompter-line", state.lineHeight);
+  }
+
   function applyAll() {
     els.editor.value = state.script;
     els.fontSize.value = state.fontSize;
@@ -401,8 +406,7 @@
     els.obsPass.value = state.obsPass;
     els.autoConnect.checked = state.autoConnect;
 
-    root.setProperty("--prompter-font", state.fontSize + "px");
-    root.setProperty("--prompter-line", state.lineHeight);
+    applyPrompterMetrics();
     root.setProperty("--app-opacity", state.opacity / 100);
     els.fontVal.textContent = state.fontSize + "px";
     els.speedVal.textContent = state.speed;
@@ -425,7 +429,13 @@
   const scroll = { running: false, paused: false, pos: 0, last: 0, raf: 0 };
 
   function maxScroll() {
-    return Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
+    const rawMax = Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
+    const visibleH = els.scroller.clientHeight;
+    const lineBox = state.fontSize * state.lineHeight;
+    const finalLineBottomY = Math.min(visibleH / 2, Math.max(lineBox, visibleH / 2 - lineBox / 2));
+    const bottomPad = parseFloat(getComputedStyle(els.prompter).paddingBottom) || 0;
+    const readableTail = Math.max(0, bottomPad - (visibleH - finalLineBottomY));
+    return Math.max(0, rawMax - readableTail);
   }
 
   function tick(now) {
@@ -436,7 +446,7 @@
       const max = maxScroll();
       if (scroll.pos >= max) {
         scroll.pos = max;
-        els.scroller.scrollTop = scroll.pos;
+        els.scroller.scrollTop = Math.max(0, els.prompter.scrollHeight - els.scroller.clientHeight);
         finishScroll();
         return;
       }
@@ -737,12 +747,12 @@
     });
   }
   bindRange(els.fontSize, "fontSize", null, () => {
-    root.setProperty("--prompter-font", state.fontSize + "px");
+    applyPrompterMetrics();
     els.fontVal.textContent = state.fontSize + "px";
   });
   bindRange(els.speed, "speed", null, () => { els.speedVal.textContent = state.speed; });
   bindRange(els.lineHeight, "lineHeight", null, () => {
-    root.setProperty("--prompter-line", state.lineHeight);
+    applyPrompterMetrics();
     els.lineVal.textContent = Number(state.lineHeight).toFixed(2);
   });
   bindRange(els.opacity, "opacity", null, () => {

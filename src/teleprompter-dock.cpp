@@ -225,6 +225,7 @@ public:
 	{
 		m_text = text;
 		m_placeholder = placeholder;
+		m_endBlank = false;
 		rebuildHtml();
 	}
 
@@ -245,10 +246,14 @@ public:
 	// we mirror that with ~55% of the viewport height.
 	int topPad() const { return int(height() * 0.55); }
 
-	// Bottom padding — a full viewport height so the LAST line scrolls entirely
-	// past the vertical centre (and off the top), ending on a clean black stage
-	// instead of stopping half-cut in the middle. (55% top + 55% bottom used to
-	// leave the last line straddling the centre guide.)
+	int lineBoxPx() const
+	{
+		return qMax(1, int(qRound(m_fontPx * m_lineSpacing)));
+	}
+
+	// Keep a full blank tail available so finishScroll() can leave the stage
+	// black, but stop at readableEndOffset() before the final line hits the top
+	// clip edge.
 	int bottomPad() const { return height(); }
 
 	// Total scrollable content height (label height + top & bottom pad).
@@ -259,7 +264,7 @@ public:
 
 	double maxOffset() const
 	{
-		return qMax(0, contentHeight() - height());
+		return qBound(0.0, readableEndOffset(), blankEndOffset());
 	}
 
 	void setOffset(double off)
@@ -268,6 +273,13 @@ public:
 		positionLabel();
 	}
 	double offset() const { return m_offset; }
+
+	void setEndBlank(bool blank)
+	{
+		m_endBlank = blank;
+		positionLabel();
+		update();
+	}
 
 protected:
 	void resizeEvent(QResizeEvent *) override { relayout(); }
@@ -332,13 +344,31 @@ private:
 
 	void positionLabel()
 	{
+		m_label->setVisible(!m_endBlank);
+		if (m_endBlank)
+			return;
 		const int sideMargin = int(width() * 0.06);
 		m_label->move(sideMargin, int(topPad() - m_offset));
+	}
+
+	double blankEndOffset() const
+	{
+		return qMax(0, contentHeight() - height());
+	}
+
+	double readableEndOffset() const
+	{
+		const double centerY = height() / 2.0;
+		const double lineBox = lineBoxPx();
+		const double finalLineBottomY =
+			qMin(centerY, qMax(lineBox, centerY - lineBox / 2.0));
+		return topPad() + m_label->height() - finalLineBottomY;
 	}
 
 	QLabel *m_label = nullptr;
 	QString m_text;
 	bool m_placeholder = true;
+	bool m_endBlank = false;
 	int m_fontPx = 48;
 	double m_offset = 0.0;
 	double m_lineSpacing = 1.5;
@@ -1192,6 +1222,7 @@ void TeleprompterDock::finishScroll()
 {
 	m_scrollTimer->stop();
 	m_paused = false;
+	m_stage->setEndBlank(true);
 
 	if (!m_recordingManagedThisSession || !m_autoStopOnEnd) {
 		finishNaturalEndWithoutRecordingStop();
@@ -1221,6 +1252,7 @@ void TeleprompterDock::finishNaturalEndWithoutRecordingStop()
 void TeleprompterDock::resetScroll()
 {
 	m_scrollPos = 0;
+	m_stage->setEndBlank(false);
 	m_stage->setOffset(0);
 }
 
