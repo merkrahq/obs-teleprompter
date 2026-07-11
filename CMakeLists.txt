@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16...3.30)
 
-# ── OBS Docked Teleprompter — native OBS plugin ──────────────────────────────
+# ── Docked Teleprompter — native OBS plugin ──────────────────────────────────
 # Builds a libobs plugin that registers a Qt6 teleprompter dock via the OBS
 # frontend API and drives recording in-process. The install rules + CPack config
 # below produce per-OS installers (002.D) so the dock auto-appears after install:
@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # "[obs-teleprompter] loaded (version X.Y.Z)" self-identifies which build is
 # actually loaded — the version had been stuck at 0.1.0 across all releases,
 # which made a stale/duplicate DLL indistinguishable from a fresh one in the log.
-project(obs-teleprompter VERSION 0.1.22)
+project(obs-teleprompter VERSION 0.1.23)
 
 option(ENABLE_FRONTEND_API "Use the OBS frontend API (required for the dock)" ON)
 option(ENABLE_QT "Use Qt functionality (required for the dock)" ON)
@@ -199,7 +199,7 @@ set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VENDOR "merkrahq")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-    "OBS Docked Teleprompter — native teleprompter dock with in-process recording")
+    "Docked Teleprompter — native dock for OBS with in-process recording")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/merkrahq/obs-teleprompter")
 set(CPACK_PACKAGE_CONTACT "admin@merkra.com")
 set(_package_icon_png "${CMAKE_CURRENT_SOURCE_DIR}/docs/assets/obs-teleprompter-icon.png")
@@ -295,12 +295,12 @@ if(APPLE)
   # COMPONENT note above). One component, packaged into one product archive.
   set(CPACK_COMPONENTS_ALL plugin)
   set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
-  set(CPACK_COMPONENT_PLUGIN_DISPLAY_NAME "OBS Teleprompter plugin")
+  set(CPACK_COMPONENT_PLUGIN_DISPLAY_NAME "Docked Teleprompter plugin")
 elseif(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
   set(CPACK_PACKAGE_FILE_NAME "obs-teleprompter-windows-${_arch}")
-  set(CPACK_NSIS_PACKAGE_NAME "OBS Docked Teleprompter")
-  set(CPACK_NSIS_DISPLAY_NAME "OBS Docked Teleprompter")
+  set(CPACK_NSIS_PACKAGE_NAME "Docked Teleprompter")
+  set(CPACK_NSIS_DISPLAY_NAME "Docked Teleprompter")
   set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
   if(EXISTS "${_package_icon_ico}")
     set(CPACK_NSIS_MUI_ICON "${_package_icon_ico}")

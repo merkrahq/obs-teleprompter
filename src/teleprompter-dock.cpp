@@ -1,5 +1,5 @@
 /*
- * OBS Docked Teleprompter — dock implementation (phases 002.B + 002.C)
+ * Docked Teleprompter — dock implementation (phases 002.B + 002.C)
  *
  * Ports the index.html teleprompter (editor, sub-pixel smooth scroll, animated
  * countdown, Start/Pause/Stop/Reset, keyboard shortcuts, dark theme, center

@@ -1,5 +1,5 @@
 /*
- * OBS Docked Teleprompter — plugin entry point (phase 002.A scaffold)
+ * Docked Teleprompter — plugin entry point (phase 002.A scaffold)
  *
  * Registers a native Qt dock with OBS via the frontend API so the teleprompter
  * appears automatically in OBS → Docks once the plugin .so is installed — no
@@ -27,7 +27,7 @@ MODULE_EXPORT const char *obs_module_description(void)
 
 MODULE_EXPORT const char *obs_module_name(void)
 {
-	return "OBS Docked Teleprompter";
+	return "Docked Teleprompter";
 }
 
 static const char *kDockId = "obs_teleprompter_dock";

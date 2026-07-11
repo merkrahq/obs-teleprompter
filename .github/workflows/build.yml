@@ -1,6 +1,6 @@
 name: Build installers
 
-# Builds the native OBS teleprompter plugin on all three OSes and produces the
+# Builds the Docked Teleprompter plugin for OBS on all three OSes and produces the
 # per-OS installers (TODO 002.D, decision `installers-via-github-ci`):
 #   Linux   → .deb + .tar.gz  (CPack DEB;TGZ)   — also verified locally on the dev box
 #   Windows → NSIS .exe + .zip (CPack NSIS;ZIP)  — CI-only (no local Windows toolchain)
@@ -460,7 +460,7 @@ jobs:
           # publishes as a normal release (auto-"Latest").
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
-            Native OBS teleprompter dock — per-OS installers **and** drag-into-OBS
+            Docked Teleprompter for OBS — per-OS installers **and** drag-into-OBS
             portable folders.
 
             **Option A — installer:** download the file for your OS and run it

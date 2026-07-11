@@ -1,5 +1,5 @@
 /*
- * OBS Docked Teleprompter — dock widget (phases 002.B + 002.C)
+ * Docked Teleprompter — dock widget (phases 002.B + 002.C)
  *
  * A native OBS dock that ports the TODO 001 teleprompter UX from `index.html`
  * into Qt widgets, and drives OBS recording in-process via the OBS frontend API
