@@ -241,14 +241,20 @@ public:
 		update();
 	}
 
-	// Vertical padding so first/last lines can reach centre. index.html uses
-	// 55vh; we mirror that with ~55% of the viewport height.
+	// Top padding so the FIRST line can reach centre. index.html uses 55vh;
+	// we mirror that with ~55% of the viewport height.
 	int topPad() const { return int(height() * 0.55); }
+
+	// Bottom padding — a full viewport height so the LAST line scrolls entirely
+	// past the vertical centre (and off the top), ending on a clean black stage
+	// instead of stopping half-cut in the middle. (55% top + 55% bottom used to
+	// leave the last line straddling the centre guide.)
+	int bottomPad() const { return height(); }
 
 	// Total scrollable content height (label height + top & bottom pad).
 	int contentHeight() const
 	{
-		return m_label->height() + 2 * topPad();
+		return m_label->height() + topPad() + bottomPad();
 	}
 
 	double maxOffset() const
