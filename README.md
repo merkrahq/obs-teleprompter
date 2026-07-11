@@ -17,6 +17,18 @@ together. Everything is local; nothing is sent anywhere.
 
 ---
 
+## Screenshots
+
+| The dock, in OBS | Script editor |
+|:---:|:---:|
+| ![Teleprompter dock inside OBS Studio](docs/assets/screenshots/dock-idle.webp) | ![Paste-and-go script editor](docs/assets/screenshots/script-editor.webp) |
+| **Settings** | **Countdown → record** |
+| ![Font, scroll speed, line height, countdown, and auto-record settings](docs/assets/screenshots/settings.webp) | ![On-screen countdown before recording starts](docs/assets/screenshots/countdown.webp) |
+
+![Recording in progress — the script scrolls while OBS records](docs/assets/screenshots/recording.webp)
+
+---
+
 ## Features
 
 - 🎬 **Countdown → auto-record → auto-scroll.** Start runs a configurable countdown (0/3/5/10s),
