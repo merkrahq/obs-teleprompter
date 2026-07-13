@@ -12,9 +12,9 @@ Custom Browser Dock setup, no `file://` URL, no WebSocket host/port/password to 
 > tool that extends OBS Studio.
 
 > **AI assistance disclosure.** Portions of this plugin's code were written with the assistance
-> of an AI coding tool (Claude). All code was reviewed, tested, and validated by the author on
-> Linux, Windows, and macOS before release. The architecture, feature design, and QA were
-> human-directed.
+> of AI coding tools (Claude, Codex, and DeepSeek). All code was reviewed, tested, and validated
+> by the author on Linux, Windows, and macOS before release. The architecture, feature design,
+> and QA were human-directed.
 
 Paste a script, press **Start** — a countdown runs, OBS starts recording automatically, and
 the script scrolls smoothly. Press **Stop** and it halts both the scroll and the recording
