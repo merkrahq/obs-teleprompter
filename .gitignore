@@ -1,0 +1,52 @@
+# >>> librarian-git managed (TODO 012.5 durable-markdown backup) >>>
+# Files-authoritative model: the durable knowledge-primitive markdown (TODO.md,
+# HANDOFF.md, NEXT.md, GOAL.md, GAMEPLAN.md, todos/, docs/) IS tracked (it is the
+# source of truth). Everything below is a rebuildable projection, an
+# un-mergeable binary, a lock, or build cruft -- never a source of truth, so it
+# is ignored. Edit project-specific ignores OUTSIDE this managed block; `librarian-git
+# init` rewrites only the lines between the markers.
+
+# Librarian DB + locks + journal + operational transcripts (rebuildable
+# projection / un-mergeable binary; NOT the four primitives -- those live in
+# todos/ and docs/, outside .agent/).
+.agent/
+
+# The derived cross-project rollup + its sidecars and reindex lock (workspace
+# root; un-mergeable binary, rebuildable from every project's markdown).
+.agent/librarian-workspace.db
+.agent/librarian-workspace.db-wal
+.agent/librarian-workspace.db-shm
+.agent/librarian-workspace-reindex.lock
+
+# Build outputs / dependency trees / framework caches (regenerable).
+build/
+dist/
+out/
+node_modules/
+.next/
+.turbo/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+# <<< librarian-git managed <<<
+
+# --- Project-specific: internal agent/workflow scaffolding ---
+# Kept local; must never enter the public OBS-submission repo.
+.claude/
+AGENTS.md
+CLAUDE.md
+GOAL.md
+GAMEPLAN.md
+HANDOFF.md
+NEXT.md
+TODO.md
+GETTING_STARTED.md
+todos/
+scripts/
+docs/DECISIONS.md
+docs/REFERENCE.md
+docs/decisions/
+docs/OBS_FORUM_RESOURCE_POST.md
+docs/assets/screenshots/screenshots.zip
