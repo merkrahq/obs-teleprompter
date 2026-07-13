@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # "[obs-teleprompter] loaded (version X.Y.Z)" self-identifies which build is
 # actually loaded — the version had been stuck at 0.1.0 across all releases,
 # which made a stale/duplicate DLL indistinguishable from a fresh one in the log.
-project(obs-teleprompter VERSION 0.1.25)
+project(obs-teleprompter VERSION 0.1.26)
 
 option(ENABLE_FRONTEND_API "Use the OBS frontend API (required for the dock)" ON)
 option(ENABLE_QT "Use Qt functionality (required for the dock)" ON)
@@ -385,3 +385,18 @@ add_custom_target(
   DEPENDS ${PROJECT_NAME}
   COMMENT "Staging portable drag-into-OBS plugin folder → build/portable/${PROJECT_NAME}/"
   VERBATIM)
+
+if(UNIX AND NOT APPLE)
+  set(OBS_LINUX_USER_PLUGIN_DIR "$ENV{HOME}/.config/obs-studio/plugins"
+      CACHE PATH "Per-user OBS Studio plugins directory for the Linux fallback install")
+
+  add_custom_target(
+    install-linux-user
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${OBS_LINUX_USER_PLUGIN_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${OBS_LINUX_USER_PLUGIN_DIR}/${PROJECT_NAME}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_portable_root}" "${OBS_LINUX_USER_PLUGIN_DIR}/${PROJECT_NAME}"
+    DEPENDS portable
+    COMMENT "Installing Linux per-user OBS plugin fallback → ${OBS_LINUX_USER_PLUGIN_DIR}/${PROJECT_NAME}/"
+    VERBATIM)
+endif()
