@@ -22,6 +22,7 @@
 #include <QFile>
 #include <QFontMetrics>
 #include <QFrame>
+#include <QGraphicsEffect>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -68,6 +69,26 @@ const char *kBad = "#ff5b5b";
 TeleprompterDock *g_instance = nullptr;
 
 enum class TransportIcon { Play, Pause, Stop, Reset };
+
+class HorizontalMirrorEffect : public QGraphicsEffect {
+public:
+	using QGraphicsEffect::QGraphicsEffect;
+
+protected:
+	void draw(QPainter *painter) override
+	{
+		QPoint offset;
+		const QPixmap source = sourcePixmap(Qt::LogicalCoordinates, &offset);
+		if (source.isNull())
+			return;
+
+		painter->save();
+		painter->translate(offset.x() + source.width(), offset.y());
+		painter->scale(-1.0, 1.0);
+		painter->drawPixmap(0, 0, source);
+		painter->restore();
+	}
+};
 
 QDockWidget *hostingDockWidget(QWidget *widget)
 {
@@ -242,6 +263,18 @@ public:
 		update();
 	}
 
+	void setMirror(bool on)
+	{
+		m_mirror = on;
+		if (m_mirror) {
+			if (!m_label->graphicsEffect())
+				m_label->setGraphicsEffect(new HorizontalMirrorEffect());
+		} else {
+			m_label->setGraphicsEffect(nullptr);
+		}
+		m_label->update();
+	}
+
 	// Top padding so the FIRST line can reach centre. index.html uses 55vh;
 	// we mirror that with ~55% of the viewport height.
 	int topPad() const { return int(height() * 0.55); }
@@ -398,6 +431,7 @@ private:
 	double m_offset = 0.0;
 	double m_lineSpacing = 1.5;
 	bool m_guide = false;
+	bool m_mirror = false;
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -452,6 +486,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 	m_countdownCombo->setCurrentIndex(
 		m_countdownCombo->findData(m_countdownLen));
 	m_guideCheck->setChecked(m_guide);
+	m_mirrorCheck->setChecked(m_mirror);
 	m_autoRecordCheck->setChecked(m_autoRecord);
 	m_autoStopOnEndCheck->setChecked(m_autoStopOnEnd);
 	m_autoStopDelaySpin->setValue(m_autoStopDelaySeconds);
@@ -466,6 +501,7 @@ TeleprompterDock::TeleprompterDock(QWidget *parent) : QWidget(parent)
 
 	applyPrompterFont();
 	m_stage->setGuide(m_guide);
+	m_stage->setMirror(m_mirror);
 	renderPrompter();
 	updateReadTime();
 
@@ -684,6 +720,9 @@ void TeleprompterDock::buildUi()
 	{
 		m_guideCheck = new QCheckBox(QStringLiteral("Center guide line"));
 		setLay->addWidget(m_guideCheck);
+		m_mirrorCheck = new QCheckBox(
+			QStringLiteral("Mirror teleprompter text"));
+		setLay->addWidget(m_mirrorCheck);
 		m_autoRecordCheck = new QCheckBox(
 			QStringLiteral("Auto-start OBS recording"));
 		setLay->addWidget(m_autoRecordCheck);
@@ -1002,6 +1041,11 @@ void TeleprompterDock::wireSignals()
 		m_stage->setGuide(on);
 		saveSettings();
 	});
+	connect(m_mirrorCheck, &QCheckBox::toggled, this, [this](bool on) {
+		m_mirror = on;
+		m_stage->setMirror(on);
+		saveSettings();
+	});
 	connect(m_autoRecordCheck, &QCheckBox::toggled, this, [this](bool on) {
 		m_autoRecord = on;
 		saveSettings();
@@ -1063,6 +1107,8 @@ void TeleprompterDock::loadSettings()
 		m_countdownLen = o.value("countdownLen").toInt(m_countdownLen);
 	if (o.contains("guide"))
 		m_guide = o.value("guide").toBool(m_guide);
+	if (o.contains("mirror"))
+		m_mirror = o.value("mirror").toBool(m_mirror);
 	if (o.contains("autoRecord"))
 		m_autoRecord = o.value("autoRecord").toBool(m_autoRecord);
 	if (o.contains("autoStopOnEnd"))
@@ -1104,6 +1150,7 @@ void TeleprompterDock::saveSettingsNow()
 	o["opacity"] = m_opacity; // dock-background opacity (TODO 00006.b)
 	o["countdownLen"] = m_countdownLen;
 	o["guide"] = m_guide;
+	o["mirror"] = m_mirror;
 	o["autoRecord"] = m_autoRecord;
 	o["autoStopOnEnd"] = m_autoStopOnEnd;
 	o["autoStopDelaySeconds"] = m_autoStopDelaySeconds;

@@ -133,6 +133,7 @@ private:
 	// reading text is always legible. See applyOpacity() / TODO 00006.b.
 	double m_opacity = 1.0;
 	bool m_guide = false;
+	bool m_mirror = false;
 	bool m_autoRecord = true;
 	bool m_autoStopOnEnd = true;
 	int m_autoStopDelaySeconds = 5;
@@ -180,6 +181,7 @@ private:
 	QLabel *m_opacityVal = nullptr;
 	QComboBox *m_countdownCombo = nullptr;
 	QCheckBox *m_guideCheck = nullptr;
+	QCheckBox *m_mirrorCheck = nullptr;
 	QCheckBox *m_autoRecordCheck = nullptr;
 	QCheckBox *m_autoStopOnEndCheck = nullptr;
 	QSpinBox *m_autoStopDelaySpin = nullptr;

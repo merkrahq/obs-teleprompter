@@ -42,12 +42,13 @@ together. Everything is local; nothing is sent anywhere.
   WebSocket, no connection to configure. It detects when OBS is already recording and reuses that
   session instead of double-starting, and it never starts scrolling on an unconfirmed recording.
 - ✍️ **Paste-and-go script editor** with automatic local save/restore. Handles long scripts.
-- 🎛️ **Live adjustable** font size, scroll speed, and line height. Smooth (sub-pixel) scrolling.
+- 🎛️ **Live adjustable** font size, scroll speed, line height, and mirror mode for beam-splitter glass.
+  Smooth (sub-pixel) scrolling.
 - ⏱️ Estimated reading time and word count.
 - 🌙 Dark, high-contrast theme with an optional **center guide line**.
 - ⌨️ Keyboard shortcuts: **Ctrl+Enter** = Start, **Space** = Pause/Resume, **Esc** = Stop.
 - 💾 Everything persists locally across OBS restarts (script, font, speed, line height, countdown,
-  layout) — in the plugin's config dir, no cloud, no accounts.
+  mirror mode, layout) — in the plugin's config dir, no cloud, no accounts.
 
 ## Requirements
 
