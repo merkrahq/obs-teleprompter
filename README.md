@@ -11,6 +11,11 @@ Custom Browser Dock setup, no `file://` URL, no WebSocket host/port/password to 
 > **Not affiliated with or endorsed by the OBS Project.** This is an independent, third-party
 > tool that extends OBS Studio.
 
+> **AI assistance disclosure.** Portions of this plugin's code were written with the assistance
+> of an AI coding tool (Claude). All code was reviewed, tested, and validated by the author on
+> Linux, Windows, and macOS before release. The architecture, feature design, and QA were
+> human-directed.
+
 Paste a script, press **Start** — a countdown runs, OBS starts recording automatically, and
 the script scrolls smoothly. Press **Stop** and it halts both the scroll and the recording
 together. Everything is local; nothing is sent anywhere.
@@ -126,6 +131,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 cd build && cpack               # → obs-teleprompter-*-Linux.deb + .tar.gz
 ```
+
+For a rootless Linux install from source, run
+`cmake --build build --target install-linux-user`; it copies the plugin to
+`~/.config/obs-studio/plugins/obs-teleprompter/`.
 
 The per-OS installers are produced in CI by
 [`.github/workflows/build.yml`](./.github/workflows/build.yml) (Linux `.deb`/`.tar.gz`, Windows
